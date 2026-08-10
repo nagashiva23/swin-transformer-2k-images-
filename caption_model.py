@@ -18,26 +18,20 @@ class SwinCaptioningModel(nn.Module):
             img_size=img_size, embed_dim=embed_dim, depths=depths,
             num_heads=enc_heads, window_size=window_size,
         )
-        d_model = self.encoder.out_dim   # 768 with Swin-T defaults
+        d_model = self.encoder.out_dim
         self.decoder = CaptionDecoder(
             vocab_size=vocab_size, d_model=d_model, num_heads=dec_heads,
             ff_dim=d_model * 4, num_layers=dec_layers, max_len=max_len, dropout=dropout,
         )
 
     def forward(self, images, captions):
-        """
-        images: (B, 3, 224, 224)
-        captions: (B, T) full caption ids including <sos> ... <eos> <pad>...
-        returns logits for predicting captions[:, 1:] given captions[:, :-1]
-        """
-        memory = self.encoder(images)          # (B, 49, d_model)
-        tgt_in = captions[:, :-1]               # teacher forcing input
-        logits = self.decoder(tgt_in, memory)   # (B, T-1, vocab_size)
+        memory = self.encoder(images)
+        tgt_in = captions[:, :-1]
+        logits = self.decoder(tgt_in, memory)
         return logits
 
     @torch.no_grad()
     def generate(self, images, vocab, max_len=40, device="cpu"):
-        """Greedy decoding for inference (batch size 1 recommended)."""
         self.eval()
         memory = self.encoder(images.to(device))
         B = images.size(0)
@@ -45,9 +39,25 @@ class SwinCaptioningModel(nn.Module):
 
         for _ in range(max_len - 1):
             logits = self.decoder(ids, memory)
-            next_id = logits[:, -1, :].argmax(-1, keepdim=True)
+            step_logits = logits[:, -1, :].clone()
+
+            prev_token = ids[:, -1]
+            step_logits.scatter_(1, prev_token.unsqueeze(1), float("-inf"))
+
+            seq_len = ids.size(1)
+            if seq_len >= 2:
+                for b in range(ids.size(0)):
+                    seq = ids[b].tolist()
+                    seen_trigrams = set()
+                    for i in range(len(seq) - 2):
+                        seen_trigrams.add((seq[i], seq[i + 1], seq[i + 2]))
+                    prefix = (seq[-2], seq[-1])
+                    banned = {t[2] for t in seen_trigrams if (t[0], t[1]) == prefix}
+                    for banned_next in banned:
+                        step_logits[b, banned_next] = float("-inf")
+
+            next_id = step_logits.argmax(-1, keepdim=True)
             ids = torch.cat([ids, next_id], dim=1)
             if (next_id == vocab.eos_id).all():
                 break
         return ids
-
