@@ -1,5 +1,11 @@
 # Swin Transformer Image Captioning — ROCOv2 (manual implementation)
 
+
+Dataset link: https://www.kaggle.com/datasets/claudiopisa9884/roco-v2
+
+
+
+
 Every component is written from scratch with plain `torch.nn` — no `timm`,
 no `transformers`, no pretrained weights, no third-party captioning repo.
 
