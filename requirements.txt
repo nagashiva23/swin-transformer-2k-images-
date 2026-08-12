@@ -1,4 +1,11 @@
+# Core model / training / inference (swin_model.py, decoder_model.py,
+# caption_model.py, dataset.py, train.py, generate.py)
 torch>=2.2.0
 torchvision>=0.17.0
 pandas>=2.0.0
 pillow>=10.0.0
+
+# eval.py + metrics.py (BLEU-1..4 / ROUGE-L / CIDEr-D) need nothing beyond
+# what's already listed above -- the metrics are implemented from scratch
+# in metrics.py (Python stdlib only: math, collections) specifically so no
+# extra installs (nltk, pycocoevalcap, Java) are required.
