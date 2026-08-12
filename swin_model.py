@@ -1,19 +1,3 @@
-"""
-Swin Transformer Encoder -- built manually, block by block.
-No timm, no transformers library. Just torch.nn primitives.
-
-Pipeline for a 224x224 image, patch_size=4, window_size=7:
-  BLOCK 1  PatchEmbed        : 224x224x3      -> 56x56x96   (tokens)
-  BLOCK 6  BasicLayer stage1 : 56x56x96  depth2 heads3  -> merge -> 28x28x192
-  BLOCK 6  BasicLayer stage2 : 28x28x192 depth2 heads6  -> merge -> 14x14x384
-  BLOCK 6  BasicLayer stage3 : 14x14x384 depth6 heads12 -> merge -> 7x7x768
-  BLOCK 6  BasicLayer stage4 : 7x7x768   depth2 heads24 -> (no merge)
-  BLOCK 7  final LayerNorm   : output tokens shape (B, 49, 768)
-
-That (B, 49, 768) sequence becomes the "memory" the caption decoder
-attends to (like the encoder output in a normal encoder-decoder model).
-"""
-
 import torch
 import torch.nn as nn
 
@@ -39,12 +23,13 @@ class PatchEmbed(nn.Module):
         return x
 
 
-# --------------------------------------------------------------------
+
 # BLOCK 2: Window partition / reverse helpers
 # Cuts the H x W token grid into non-overlapping window_size x window_size
 # windows so attention can be computed locally (this is what makes Swin
 # cheaper than full self-attention).
-# --------------------------------------------------------------------
+
+
 def window_partition(x, window_size):
     B, H, W, C = x.shape
     x = x.view(B, H // window_size, window_size, W // window_size, window_size, C)
@@ -57,6 +42,7 @@ def window_reverse(windows, window_size, H, W):
     x = windows.view(B, H // window_size, W // window_size, window_size, window_size, -1)
     x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, H, W, -1)
     return x
+
 
 
 # --------------------------------------------------------------------

@@ -1,18 +1,9 @@
-"""
-Caption Decoder -- built manually, block by block.
-Standard autoregressive Transformer decoder: masked self-attention over
-the caption-so-far, cross-attention over the Swin encoder's image tokens,
-then a feed-forward block. Repeated `num_layers` times.
-"""
-
 import math
 import torch
 import torch.nn as nn
 
 
-# --------------------------------------------------------------------
 # BLOCK 1: Positional Encoding (sinusoidal, fixed -- not learned)
-# --------------------------------------------------------------------
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=100):
         super().__init__()
@@ -50,7 +41,10 @@ class MultiHeadAttention(nn.Module):
 
         scores = (Q @ K.transpose(-2, -1)) / math.sqrt(self.d_k)
         if mask is not None:
-            scores = scores.masked_fill(mask == 0, float("-inf"))
+            # -100.0 instead of -inf: matches the convention already used in
+            # swin_model.py's shift-window mask, which avoids a known PyTorch
+            # MPS-backend issue where softmax over -inf can produce NaN.
+            scores = scores.masked_fill(mask == 0, float(-100.0))
         attn = torch.softmax(scores, dim=-1)
         out = attn @ V
         out = out.transpose(1, 2).contiguous().view(B, -1, self.num_heads * self.d_k)

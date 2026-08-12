@@ -18,8 +18,8 @@ import torch
 from torch.utils.data import Dataset
 import torchvision.transforms as T
 
-IMAGE_COL = "ID"        # <-- change if your csv uses a different column name
-CAPTION_COL = "Caption"  # <-- change if your csv uses a different column name
+IMAGE_COL = "ID"
+CAPTION_COL = "Caption"
 
 
 class ROCODataset(Dataset):

@@ -1,10 +1,3 @@
-"""
-Training script for Swin + Transformer-decoder captioning on ROCOv2.
-
-v3: scaled up from 2k to 15k training images (2k valid) to fix encoder
-representation collapse observed with too little data.
-"""
-
 import os
 import copy
 import torch
@@ -51,6 +44,27 @@ def lr_lambda(epoch, warmup_epochs, total_epochs):
     return 0.5 * (1.0 + math.cos(math.pi * progress))
 
 
+def build_param_groups(model, weight_decay):
+    """Split params into decay / no-decay groups, matching the Swin paper's
+    own training recipe: exclude all 1-D params (LayerNorm weight+bias,
+    linear biases) and the relative-position-bias table (2-D, so the ndim
+    check alone would miss it) from weight decay. Decaying these distorts
+    normalization scale and the learned window position bias without
+    helping generalization -- see FINDINGS.md."""
+    decay, no_decay = [], []
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        if param.ndim <= 1 or "relative_position_bias_table" in name:
+            no_decay.append(param)
+        else:
+            decay.append(param)
+    return [
+        {"params": decay, "weight_decay": weight_decay},
+        {"params": no_decay, "weight_decay": 0.0},
+    ]
+
+
 def main():
     print("Device:", DEVICE)
 
@@ -68,7 +82,7 @@ def main():
 
     model = SwinCaptioningModel(vocab_size=len(vocab), max_len=MAX_LEN).to(DEVICE)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=PEAK_LR, weight_decay=WEIGHT_DECAY)
+    optimizer = torch.optim.AdamW(build_param_groups(model, WEIGHT_DECAY), lr=PEAK_LR)
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lr_lambda=lambda ep: lr_lambda(ep, WARMUP_EPOCHS, EPOCHS)
     )
