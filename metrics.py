@@ -135,7 +135,7 @@ def corpus_cider_d(references, hypotheses, n_max=4, sigma=6.0):
     return sum(scores) / len(scores) if scores else 0.0
 
 
-# ------------------------------------------------------------ self-test ---
+
 if __name__ == "__main__":
     ref = "axial ct chest shows a right upper lobe nodule".split()
     hyp_perfect = ref

@@ -2,11 +2,10 @@ import torch
 import torch.nn as nn
 
 
-# --------------------------------------------------------------------
-# BLOCK 1: Patch Embedding
-# Splits the image into non-overlapping patch_size x patch_size patches
-# and linearly projects each patch to `embed_dim`.
-# --------------------------------------------------------------------
+''' BLOCK 1: Patch Embedding
+ Splits the image into non-overlapping patch_size x patch_size patches
+ and linearly projects each patch to `embed_dim`.'''
+
 class PatchEmbed(nn.Module):
     def __init__(self, img_size=224, patch_size=4, in_chans=3, embed_dim=96):
         super().__init__()
@@ -24,10 +23,10 @@ class PatchEmbed(nn.Module):
 
 
 
-# BLOCK 2: Window partition / reverse helpers
-# Cuts the H x W token grid into non-overlapping window_size x window_size
-# windows so attention can be computed locally (this is what makes Swin
-# cheaper than full self-attention).
+''' BLOCK 2: Window partition / reverse helpers
+Cuts the H x W token grid into non-overlapping window_size x window_size
+ windows so attention can be computed locally (this is what makes Swin
+ cheaper than full self-attention).'''
 
 
 def window_partition(x, window_size):
@@ -45,12 +44,11 @@ def window_reverse(windows, window_size, H, W):
 
 
 
-# --------------------------------------------------------------------
-# BLOCK 3: Window Attention
-# Multi-head self-attention computed *within each window*, plus a
-# learned relative position bias (this replaces absolute positional
-# encoding in Swin).
-# --------------------------------------------------------------------
+''' BLOCK 3: Window Attention
+Multi-head self-attention computed *within each window*, plus a
+ learned relative position bias (this replaces absolute positional
+ encoding in Swin).'''
+
 class WindowAttention(nn.Module):
     def __init__(self, dim, window_size, num_heads, qkv_bias=True):
         super().__init__()
@@ -108,13 +106,13 @@ class WindowAttention(nn.Module):
         return x
 
 
-# --------------------------------------------------------------------
-# BLOCK 4: Swin Transformer Block
-# One block = (shifted-)window attention + MLP, each with a residual
-# connection and pre-LayerNorm. Even-indexed blocks use regular windows
-# (W-MSA), odd-indexed blocks shift the windows (SW-MSA) so information
-# can flow across window boundaries.
-# --------------------------------------------------------------------
+
+
+''' BLOCK 4: Swin Transformer Block
+One block = (shifted-)window attention + MLP, each with a residual
+ connection and pre-LayerNorm. Even-indexed blocks use regular windows
+ (W-MSA), odd-indexed blocks shift the windows (SW-MSA) so information
+ can flow across window boundaries.'''
 class Mlp(nn.Module):
     def __init__(self, dim, hidden_dim, drop=0.0):
         super().__init__()
