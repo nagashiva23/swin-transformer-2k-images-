@@ -11,6 +11,9 @@ It follows the same ROCO v2 split/vocabulary pipeline style as your Swin project
 
 ## Folder structure
 
+- `Report.md`: Complete academic report in Markdown with LaTeX equations, loss curves, evaluation tables, qualitative grids, and paper benchmarking
+- `Report.tex`: Standalone, compilation-ready LaTeX source file formatted for academic publication
+- `plot_results.py`: Script to generate publication-grade figures in `figures/`
 - `src/vocabulary.py`: tokenizer, vocabulary build/load, caption CSV reader
 - `src/dataset.py`: ROCO dataset loader + ImageNet normalization
 - `src/cnn_lstm.py`: CNN encoder + LSTM decoder + integrated model
@@ -18,6 +21,12 @@ It follows the same ROCO v2 split/vocabulary pipeline style as your Swin project
 - `train.py`: training + checkpointing + resume
 - `evaluate.py`: test loss + BLEU/METEOR/ROUGE-L
 - `inference.py`: single image or split-index inference
+
+## Comprehensive Academic Report
+
+The workspace includes a complete academic report detailing system architecture, LaTeX mathematical derivations, training dynamics, evaluation metrics, and paper comparisons:
+- **Markdown Version**: [Report.md](file:///c:/AIE%20Files/Projects/S5/Dl/CNN+LSTM/Report.md)
+- **LaTeX Source Code**: [Report.tex](file:///c:/AIE%20Files/Projects/S5/Dl/CNN+LSTM/Report.tex)
 
 ## Install
 
