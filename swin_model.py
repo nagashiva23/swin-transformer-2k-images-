@@ -127,9 +127,24 @@ class Mlp(nn.Module):
         return x
 
 
+class DropPath(nn.Module):
+    """Stochastic depth: randomly drops the whole residual branch per-sample."""
+    def __init__(self, drop_prob=0.0):
+        super().__init__()
+        self.drop_prob = drop_prob
+
+    def forward(self, x):
+        if self.drop_prob == 0.0 or not self.training:
+            return x
+        keep_prob = 1 - self.drop_prob
+        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+        mask = torch.rand(shape, dtype=x.dtype, device=x.device).add_(keep_prob).floor_()
+        return x.div(keep_prob) * mask
+
+
 class SwinBlock(nn.Module):
     def __init__(self, dim, input_resolution, num_heads, window_size=7,
-                 shift_size=0, mlp_ratio=4.0, drop=0.0):
+                 shift_size=0, mlp_ratio=4.0, drop=0.0, drop_path=0.0):
         super().__init__()
         self.input_resolution = input_resolution
         self.window_size = window_size
@@ -144,6 +159,7 @@ class SwinBlock(nn.Module):
         self.attn = WindowAttention(dim, self.window_size, num_heads)
         self.norm2 = nn.LayerNorm(dim)
         self.mlp = Mlp(dim, int(dim * mlp_ratio), drop)
+        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         self.register_buffer("attn_mask", self._build_shift_mask(dim), persistent=False)
 
@@ -196,8 +212,8 @@ class SwinBlock(nn.Module):
             x = shifted_x
 
         x = x.view(B, H * W, C)
-        x = shortcut + x
-        x = x + self.mlp(self.norm2(x))
+        x = shortcut + self.drop_path(x)
+        x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
 
 
@@ -232,11 +248,14 @@ class PatchMerging(nn.Module):
 # BLOCK 6: Stage (a stack of SwinBlocks + optional PatchMerging)
 # --------------------------------------------------------------------
 class BasicLayer(nn.Module):
-    def __init__(self, dim, input_resolution, depth, num_heads, window_size, downsample=None):
+    def __init__(self, dim, input_resolution, depth, num_heads, window_size, downsample=None, drop_path=0.0):
         super().__init__()
+        if not isinstance(drop_path, (list, tuple)):
+            drop_path = [drop_path] * depth
         self.blocks = nn.ModuleList([
             SwinBlock(dim, input_resolution, num_heads, window_size,
-                      shift_size=0 if (i % 2 == 0) else window_size // 2)
+                      shift_size=0 if (i % 2 == 0) else window_size // 2,
+                      drop_path=drop_path[i])
             for i in range(depth)
         ])
         self.downsample = downsample(input_resolution, dim) if downsample is not None else None
@@ -254,16 +273,24 @@ class BasicLayer(nn.Module):
 # --------------------------------------------------------------------
 class SwinEncoder(nn.Module):
     def __init__(self, img_size=224, patch_size=4, in_chans=3, embed_dim=96,
-                 depths=(2, 2, 6, 2), num_heads=(3, 6, 12, 24), window_size=7):
+                 depths=(2, 2, 6, 2), num_heads=(3, 6, 12, 24), window_size=7,
+                 drop_path_rate=0.1):
         super().__init__()
         self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
         grid = self.patch_embed.grid_size
 
+        # linearly increasing stochastic-depth rate across all encoder blocks
+        total_depth = sum(depths)
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, total_depth)]
+
         self.layers = nn.ModuleList()
         dim, res = embed_dim, grid
+        block_idx = 0
         for i in range(len(depths)):
             downsample = PatchMerging if i < len(depths) - 1 else None
-            self.layers.append(BasicLayer(dim, (res, res), depths[i], num_heads[i], window_size, downsample))
+            self.layers.append(BasicLayer(dim, (res, res), depths[i], num_heads[i], window_size, downsample,
+                                           drop_path=dpr[block_idx:block_idx + depths[i]]))
+            block_idx += depths[i]
             if downsample is not None:
                 dim *= 2
                 res //= 2

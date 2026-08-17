@@ -13,12 +13,12 @@ VALID_IMAGES = os.path.join(ROOT, "valid_images", "valid")
 TRAIN_CSV = os.path.join(ROOT, "train_captions.csv")
 VALID_CSV = os.path.join(ROOT, "valid_captions.csv")
 
-TRAIN_SAMPLES = 15000
+TRAIN_SAMPLES = 5000
 VALID_SAMPLES = 2000
 MAX_LEN = 40
 BATCH_SIZE = 32
 EPOCHS = 60
-PEAK_LR = 5e-4
+PEAK_LR = 2e-4
 WARMUP_EPOCHS = 5
 WEIGHT_DECAY = 0.05
 LABEL_SMOOTHING = 0.1

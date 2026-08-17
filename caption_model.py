@@ -9,6 +9,18 @@ from swin_model import SwinEncoder
 from decoder_model import CaptionDecoder
 
 
+def _init_weights(module):
+    # relative_position_bias_table already gets its own trunc_normal_ init
+    # in WindowAttention.__init__ and isn't a Linear/LayerNorm, so it's untouched here.
+    if isinstance(module, nn.Linear):
+        nn.init.trunc_normal_(module.weight, std=0.02)
+        if module.bias is not None:
+            nn.init.zeros_(module.bias)
+    elif isinstance(module, nn.LayerNorm):
+        nn.init.ones_(module.weight)
+        nn.init.zeros_(module.bias)
+
+
 class SwinCaptioningModel(nn.Module):
     def __init__(self, vocab_size, img_size=224, window_size=7,
                  embed_dim=96, depths=(2, 2, 6, 2), enc_heads=(3, 6, 12, 24),
@@ -23,6 +35,7 @@ class SwinCaptioningModel(nn.Module):
             vocab_size=vocab_size, d_model=d_model, num_heads=dec_heads,
             ff_dim=d_model * 4, num_layers=dec_layers, max_len=max_len, dropout=dropout,
         )
+        self.apply(_init_weights)
 
     def forward(self, images, captions):
         memory = self.encoder(images)
@@ -42,7 +55,7 @@ class SwinCaptioningModel(nn.Module):
             step_logits = logits[:, -1, :].clone()
 
             prev_token = ids[:, -1]
-            step_logits.scatter_(1, prev_token.unsqueeze(1), float("-inf"))
+            step_logits.scatter_(1, prev_token.unsqueeze(1), float(-100.0))
 
             seq_len = ids.size(1)
             if seq_len >= 2:
@@ -54,7 +67,7 @@ class SwinCaptioningModel(nn.Module):
                     prefix = (seq[-2], seq[-1])
                     banned = {t[2] for t in seen_trigrams if (t[0], t[1]) == prefix}
                     for banned_next in banned:
-                        step_logits[b, banned_next] = float("-inf")
+                        step_logits[b, banned_next] = float(-100.0)
 
             next_id = step_logits.argmax(-1, keepdim=True)
             ids = torch.cat([ids, next_id], dim=1)

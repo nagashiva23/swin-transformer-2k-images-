@@ -1,0 +1,69 @@
+% ============================================================
+% Related Work section for:
+% "A From-Scratch Swin Transformer Encoder--Decoder Network for
+%  Automated Radiology Image Captioning"
+%
+% Paste this \section directly after \section{Introduction} in
+% the main .tex file (it is written to match \label{sec:related}
+% as referenced in the Introduction's roadmap paragraph). The
+% bibliography block at the bottom can be merged into an existing
+% \begin{thebibliography} or converted to a .bib file if the paper
+% uses \bibliography{} instead.
+% ============================================================
+
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Classical and Attention-Based Image Captioning}
+Early neural image captioning systems adopted an encoder--decoder design in which a convolutional neural network (CNN) encoder produced a single global image vector that was fed to a recurrent decoder. Vinyals et al.~\cite{vinyals2015show} introduced this paradigm with Show and Tell, pairing a CNN encoder with an LSTM decoder trained to maximize caption likelihood. Xu et al.~\cite{xu2015show} extended this with Show, Attend and Tell, adding a spatial attention mechanism so the decoder could focus on different CNN feature-map regions at each generation step, rather than relying on one compressed vector for the whole image. This attention-based CNN-LSTM design became the dominant template for captioning work over the following years and is the direct architectural ancestor of the CNN+LSTM system described by Pranay Kumar et al.~\cite{ijraset2022}, which trains a CNN feature extractor coupled with an LSTM decoder on the general-domain Flickr8k dataset. That work targets natural photographs (people, animals, everyday scenes) rather than medical images, and reports results at Flickr8k scale rather than on a radiology corpus; it is nonetheless a useful architectural reference point in this survey because it represents the CNN-LSTM baseline that Transformer-based encoder--decoder captioning, including the system in this paper, is intended to improve upon in modeling long-range dependencies between visual regions and generated words.
+
+\subsection{Transformer Architectures and Vision Transformers}
+Vaswani et al.~\cite{vaswani2017attention} proposed the Transformer, replacing recurrence with multi-head self-attention and showing that sequence modeling could be done more efficiently and with better long-range dependency capture than RNN/LSTM-based approaches. This architecture was originally developed for machine translation but its decoder block -- masked self-attention, cross-attention, and a position-wise feed-forward network -- is the same structure used by essentially all subsequent Transformer-based caption decoders, including the six-layer decoder used in this work. Dosovitskiy et al.~\cite{dosovitskiy2020vit} later showed with the Vision Transformer (ViT) that an image, split into fixed-size patches and treated as a token sequence, could be processed directly by a standard Transformer encoder without any convolutional inductive bias, provided sufficient pretraining data. However, ViT's global self-attention scales quadratically with the number of patches, which becomes expensive at high resolution. Liu et al.~\cite{liu2021swin} addressed this with the Swin Transformer, which restricts self-attention to non-overlapping local windows and alternates regular and shifted window partitions across successive blocks (W-MSA/SW-MSA) so that information can still propagate across window boundaries. Combined with a patch-merging operation that halves spatial resolution and doubles channel width between stages, Swin produces a hierarchical, multi-scale visual representation at linear rather than quadratic cost in the number of patches -- the property that motivates its use as the visual encoder in this work.
+
+\subsection{Medical and Radiology Image Captioning}
+Captioning in the medical domain is complicated by the fact that clinically relevant findings are often small, subtle, and spatially localized, and by the comparative scarcity of large, cleanly paired image--caption medical corpora relative to general-domain photography datasets. Pelka et al.~\cite{pelka2018roco} introduced ROCO (Radiology Objects in COntext), one of the first large-scale radiology image--caption datasets built from the PMC Open Access subset, enabling captioning research on real clinical figures rather than natural images. Rückert et al.~\cite{ruckert2024rocov2} released ROCOv2, an updated and expanded version of this dataset with improved image--caption--concept alignment, which is the dataset used for training and evaluation in this work (Section~\ref{sec:experiments}). ROCOv2 has since served as the basis for the ImageCLEFmedical Caption challenge; the 2023 edition's overview paper~\cite{ruckert2023imageclef} reports a DenseNet169-CNN-with-LSTM-decoder baseline against which the BLEU/ROUGE/CIDEr results in this paper are compared (Section~\ref{sec:results}). More recent work has moved from CNN-RNN pipelines toward Transformer-based medical captioning. Lee et al.~\cite{lee2022cross} propose a cross encoder--decoder Transformer with a global-local visual extractor for medical image captioning, combining coarse whole-image and fine region-level visual features before cross-attention decoding. Fadhilah and Utama~\cite{fadhilah2026transformer} similarly use a Transformer encoder--decoder for medical image captioning, augmented with UMLS concept-embedding supervision to ground generated text in clinical terminology. Both systems, like most recent medical captioning work, rely on CNN or pretrained Transformer backbones for the visual encoder; neither trains a Swin-style hierarchical window-attention encoder entirely from randomly initialized weights, which is the specific setting explored in this paper.
+
+\subsection{Positioning of This Work}
+Taken together, the literature above shows a clear architectural progression -- from CNN-LSTM encoder--decoder captioning~\cite{vinyals2015show,xu2015show,ijraset2022}, to attention-augmented CNN decoders, to fully Transformer-based encoder--decoder captioning built on ViT- or Swin-style visual backbones~\cite{dosovitskiy2020vit,liu2021swin,lee2022cross,fadhilah2026transformer} -- almost universally under the assumption of large-scale pretraining or at minimum a pretrained visual backbone. Medical captioning work built on ROCO/ROCOv2~\cite{pelka2018roco,ruckert2024rocov2,ruckert2023imageclef} typically follows the same pattern, pairing a pretrained CNN encoder (e.g., DenseNet169) with an LSTM or Transformer decoder. This paper instead studies a harder and less-explored setting: a Swin Transformer encoder and Transformer decoder implemented entirely from first principles and trained with randomly initialized weights, without any pretrained backbone, transformers library, or third-party captioning framework. Because a randomly initialized attention-based encoder has none of the inductive bias that ImageNet or masked-image pretraining would normally supply, we specifically study how training-set scale affects the encoder's ability to learn useful visual representations, comparing a 2,000-image pilot configuration against a 15,000-image configuration and analyzing a representation-collapse failure mode -- where the decoder converges to a small set of generic, image-agnostic captions -- that is not typically reported in pretrained-backbone settings. This framing positions the present work as a transparency- and data-efficiency-focused complement to the pretrained-backbone medical captioning literature, rather than a direct benchmark-accuracy competitor to it.
+
+% ============================================================
+% Bibliography entries -- merge into the paper's existing
+% thebibliography block, or convert to BibTeX \bibitem-equivalent
+% entries if the paper uses \bibliography{refs.bib} instead.
+% ============================================================
+\begin{thebibliography}{00}
+
+\bibitem{vinyals2015show}
+O.~Vinyals, A.~Toshev, S.~Bengio, and D.~Erhan, ``Show and tell: A neural image caption generator,'' in \emph{Proc. IEEE Conf. Comput. Vis. Pattern Recognit. (CVPR)}, 2015, pp.~3156--3164.
+
+\bibitem{xu2015show}
+K.~Xu, J.~Ba, R.~Kiros, K.~Cho, A.~Courville, R.~Salakhutdinov, R.~Zemel, and Y.~Bengio, ``Show, attend and tell: Neural image caption generation with visual attention,'' in \emph{Proc. Int. Conf. Mach. Learn. (ICML)}, PMLR vol.~37, 2015, pp.~2048--2057.
+
+\bibitem{ijraset2022}
+M.~Pranay Kumar, V.~Snigdha, R.~Nandini, and B.~Indira Reddy, ``Image captioning generator using CNN and LSTM,'' \emph{Int. J. Res. Appl. Sci. Eng. Technol. (IJRASET)}, 2022, doi: 10.22214/ijraset.2022.44502.
+
+\bibitem{vaswani2017attention}
+A.~Vaswani, N.~Shazeer, N.~Parmar, J.~Uszkoreit, L.~Jones, A.~N. Gomez, L.~Kaiser, and I.~Polosukhin, ``Attention is all you need,'' in \emph{Adv. Neural Inf. Process. Syst. (NeurIPS)}, 2017, pp.~5998--6008.
+
+\bibitem{dosovitskiy2020vit}
+A.~Dosovitskiy, L.~Beyer, A.~Kolesnikov, D.~Weissenborn, X.~Zhai, T.~Unterthiner, M.~Dehghani, M.~Minderer, G.~Heigold, S.~Gelly, J.~Uszkoreit, and N.~Houlsby, ``An image is worth 16x16 words: Transformers for image recognition at scale,'' \emph{arXiv preprint arXiv:2010.11929}, 2020.
+
+\bibitem{liu2021swin}
+Z.~Liu, Y.~Lin, Y.~Cao, H.~Hu, Y.~Wei, Z.~Zhang, S.~Lin, and B.~Guo, ``Swin transformer: Hierarchical vision transformer using shifted windows,'' in \emph{Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV)}, 2021, pp.~10012--10022.
+
+\bibitem{pelka2018roco}
+O.~Pelka, S.~Koitka, J.~Rückert, F.~Nensa, and C.~M. Friedrich, ``Radiology objects in COntext (ROCO): A multimodal image dataset,'' in \emph{Intravascular Imaging and Computer Assisted Stenting, and Large-Scale Annotation of Biomedical Data and Expert Label Synthesis (CVII-STENT/LABELS Workshop, MICCAI)}, LNCS vol.~11043, Springer, 2018, pp.~180--189.
+
+\bibitem{ruckert2024rocov2}
+J.~Rückert, L.~Bloch, R.~Brüngel, A.~Idrissi-Yaghir, H.~Schäfer, C.~S. Schmidt, S.~Koitka, O.~Pelka, A.~Ben Abacha, A.~García Seco de Herrera, H.~Müller, P.~A. Horn, F.~Nensa, and C.~M. Friedrich, ``ROCOv2: Radiology objects in COntext version 2, an updated multimodal image dataset,'' \emph{Scientific Data}, vol.~11, art.~688, 2024.
+
+\bibitem{ruckert2023imageclef}
+J.~Rückert et al., ``Overview of ImageCLEFmedical 2023 -- caption prediction and concept detection,'' in \emph{CLEF 2023 Working Notes}, CEUR-WS vol.~3497, paper~108, 2023.
+
+\bibitem{lee2022cross}
+H.~Lee, H.~Cho, J.~Park, J.~Chae, and J.~Kim, ``Cross encoder-decoder transformer with global-local visual extractor for medical image captioning,'' \emph{Sensors}, vol.~22, no.~4, p.~1429, 2022.
+
+\bibitem{fadhilah2026transformer}
+H.~Fadhilah and N.~P. Utama, ``Transformer-based encoder-decoder model for medical image captioning with concept embedding,'' \emph{Jurnal Masyarakat Informatika}, vol.~17, no.~1, pp.~1--25, 2026.
+
+\end{thebibliography}

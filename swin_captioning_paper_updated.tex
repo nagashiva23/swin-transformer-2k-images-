@@ -1,0 +1,262 @@
+\documentclass[conference]{IEEEtran}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+
+\begin{document}
+
+\title{A From-Scratch Swin Transformer Encoder--Decoder Network for Automated Radiology Image Captioning}
+
+\author{
+\IEEEauthorblockN{Naga Shiva\IEEEauthorrefmark{1}, Rajashree\IEEEauthorrefmark{1}, Ravishanmugham\IEEEauthorrefmark{1}, Sharvesh\IEEEauthorrefmark{1}}
+\IEEEauthorblockA{\IEEEauthorrefmark{1}Department of Artificial Intelligence\\
+Amrita Vishwa Vidyapeetham\\}
+}
+
+\maketitle
+
+\begin{abstract}
+Medical image captioning aims to generate clear text descriptions from medical images, helping reduce reporting effort and improve consistency. In this work, we develop an encoder--decoder model for radiology image captioning using neural network components implemented from scratch, without pretrained backbones or third-party transformer libraries. The encoder is a Swin Transformer that converts a $224\times224$ image into hierarchical visual features using patch embedding, window-based self-attention, shifted-window attention, and patch merging. The final representation consists of 49 visual tokens, each with 768 dimensions. These tokens are passed as memory to a six-layer Transformer decoder, which uses masked self-attention to model previously generated words and cross-attention to connect language with visual information. An initial training run on ROCOv2 image--caption pairs exhibited severe encoder representation collapse: the 49 output tokens became nearly identical regardless of input content, and the decoder converged to a small set of generic, image-agnostic captions. We conduct a systematic audit to determine whether this failure originates in the architecture or the training recipe, first verifying architectural correctness with a mandatory ten-example overfitting test, then auditing the training code directly. The audit identifies three concrete recipe defects -- missing weight initialization, the absence of stochastic-depth regularization, and a learning-rate schedule that terminates just as training would otherwise recover -- which we fix and re-verify. Using the corrected recipe, we retrain the model at two data scales (2,000 and 5,000 ROCOv2 image--caption pairs, with a fixed 2,000-pair validation set) and re-run the same representation-health diagnostics used to detect the original collapse. We find that the fixes and increased data scale produce a measurable, image-dependent reduction in representation collapse and a monotonic improvement in caption diversity and low-order n-gram overlap, without yet fully eliminating collapse on low-contrast inputs at the scales tested. This work provides a fully transparent implementation and diagnostic methodology for understanding failure modes in the image-to-caption pipeline, and a corrected training recipe as a foundation for future scaling.
+\end{abstract}
+
+\begin{IEEEkeywords}
+image captioning, Swin Transformer, transformer decoder, medical imaging, ROCOv2, vision-language models, attention mechanisms, representation collapse
+\end{IEEEkeywords}
+
+
+
+\section{Introduction}
+\label{sec:intro}
+
+Medical imaging generates a large volume of scans that must be interpreted and documented by trained radiologists. Preparing free-text descriptions is time-consuming and can introduce variation in how findings are described. Automatic medical image captioning aims to assist this process by generating natural-language descriptions directly from medical images, potentially providing a useful starting point for clinical documentation. However, medical image captioning is more challenging than captioning natural photographs because clinically relevant information can be subtle, spatially localized, and distributed across different regions of an image. A successful model must therefore capture both fine-grained visual patterns and the relationships between these patterns while producing coherent language.
+
+Most image captioning systems follow an encoder--decoder architecture, in which a visual encoder converts an image into a feature representation and a language decoder generates a caption autoregressively. Convolutional neural networks have traditionally been used as visual encoders because of their strong ability to capture local spatial patterns. However, modeling long-range relationships with convolutional layers generally requires stacking multiple layers. Vision Transformers address this limitation by using self-attention to model relationships between image patches, but global self-attention becomes computationally expensive as the number of patches increases. The Swin Transformer addresses this problem by restricting self-attention to non-overlapping local windows and shifting the window partition between successive blocks. This design enables communication across neighboring windows while keeping the computational cost manageable. Its patch-merging operation further reduces spatial resolution and increases feature dimensionality, producing hierarchical visual representations at multiple scales.
+
+In this work, we develop a radiology image captioning system that combines a Swin Transformer encoder with an autoregressive Transformer decoder. A central objective of the work is to understand and implement the complete architecture from first principles rather than relying on pretrained backbones or third-party Transformer implementations. The Swin encoder is constructed using elementary \texttt{torch.nn} operations and includes patch embedding, window partitioning and reversal, window-based multi-head self-attention (W-MSA), shifted-window multi-head self-attention (SW-MSA), learned relative position biases, attention masking, and patch merging. The encoder contains four hierarchical stages with depths $(2,2,6,2)$ and attention heads $(3,6,12,24)$, using a window size of $7$. Starting from a $224\times224\times3$ image, the encoder progressively produces a compact $7\times7\times768$ representation, corresponding to 49 visual tokens of dimension 768.
+
+The resulting visual tokens are provided as memory to a six-layer Transformer decoder, which is also implemented from basic neural network operators. The decoder first represents caption tokens using a learned embedding and sinusoidal positional encoding. Each decoder layer then applies causally masked self-attention to model dependencies between previously available caption tokens, followed by cross-attention in which caption representations provide queries and the Swin visual tokens provide keys and values. This cross-attention mechanism forms the connection between the visual and language streams, allowing the decoder to use relevant image information while predicting each word. A position-wise feed-forward network then transforms the resulting representations.
+
+An initial training run on the ROCOv2 dataset produced captions that were fluent but strikingly repetitive: a small number of generic, image-agnostic templates covered the large majority of generated outputs regardless of the input image. Rather than attribute this immediately to insufficient data or an under-parameterized decoder, we treat it as a diagnostic problem: is the failure architectural (a wiring, gradient-flow, or masking defect that would make the encoder incapable of learning regardless of data or recipe), or is it a training-recipe problem (correct architecture, poorly configured optimization)? We first isolate the architecture from the training recipe using a mandatory ten-example overfitting test -- if a correctly implemented model cannot memorize ten image--caption pairs, no amount of additional data or tuning will fix it. This test passes cleanly, ruling out an architectural defect and redirecting the investigation to the training code, where a direct audit identifies three concrete, fixable recipe defects. We apply the fixes, re-verify the overfitting test still passes, and then retrain at two controlled data scales -- 2,000 and 5,000 training images, with a fixed 2,000-image validation set -- to study how recipe correctness and data scale jointly affect the severity of representation collapse.
+
+The main contributions of this work are:
+\begin{itemize}
+    \item We implement a complete Swin Transformer encoder and autoregressive Transformer decoder from first principles for radiology image captioning, without pretrained model weights or third-party Transformer libraries.
+
+    \item We provide a detailed implementation and analysis of the complete image-to-caption pipeline, including patch embedding, windowed and shifted-window attention, patch merging, caption self-attention, image--text cross-attention, and autoregressive word generation.
+
+    \item We introduce a diagnostic methodology -- a mandatory small-batch overfitting test combined with a representation-health audit (within-image token similarity, variance decomposition, and a synthetic-image control experiment) -- that separates architectural defects from training-recipe defects, and use it to identify and fix three concrete recipe defects: missing weight initialization, absent stochastic-depth regularization, and a learning-rate schedule that stopped training prematurely.
+
+    \item We measure the effect of the corrected recipe combined with increasing training-data scale (2,000 vs.\ 5,000 images) on representation collapse and caption quality, showing a measurable, image-dependent reduction in collapse and a monotonic improvement in caption diversity and low-order n-gram overlap.
+\end{itemize}
+
+The remainder of this paper is organized as follows. Section~\ref{sec:related} reviews related work in image captioning, vision Transformers, and medical report generation. Section~\ref{sec:method} describes the proposed Swin encoder, Transformer decoder, and training procedure, including the corrected recipe and the architecture-verification test. Section~\ref{sec:experiments} presents the dataset, experimental setup, and evaluation protocol. Section~\ref{sec:results} reports and analyzes the experimental results. Finally, Section~\ref{sec:conclusion} summarizes the findings, limitations, and directions for future work.
+
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Classical and Attention-Based Image Captioning}
+Early neural image captioning systems adopted an encoder--decoder design in which a convolutional neural network (CNN) encoder produced a single global image vector that was fed to a recurrent decoder. Vinyals et al.~\cite{vinyals2015show} introduced this paradigm with Show and Tell, pairing a CNN encoder with an LSTM decoder trained to maximize caption likelihood. Xu et al.~\cite{xu2015show} extended this with Show, Attend and Tell, adding a spatial attention mechanism so the decoder could focus on different CNN feature-map regions at each generation step, rather than relying on one compressed vector for the whole image. This attention-based CNN-LSTM design became the dominant template for captioning work over the following years and is the direct architectural ancestor of the CNN+LSTM system described by Pranay Kumar et al.~\cite{ijraset2022}, which trains a CNN feature extractor coupled with an LSTM decoder on the general-domain Flickr8k dataset. That work targets natural photographs (people, animals, everyday scenes) rather than medical images, and reports results at Flickr8k scale rather than on a radiology corpus; it is nonetheless a useful architectural reference point in this survey because it represents the CNN-LSTM baseline that Transformer-based encoder--decoder captioning, including the system in this paper, is intended to improve upon in modeling long-range dependencies between visual regions and generated words.
+
+\subsection{Transformer Architectures and Vision Transformers}
+Vaswani et al.~\cite{vaswani2017attention} proposed the Transformer, replacing recurrence with multi-head self-attention and showing that sequence modeling could be done more efficiently and with better long-range dependency capture than RNN/LSTM-based approaches. This architecture was originally developed for machine translation but its decoder block -- masked self-attention, cross-attention, and a position-wise feed-forward network -- is the same structure used by essentially all subsequent Transformer-based caption decoders, including the six-layer decoder used in this work. Dosovitskiy et al.~\cite{dosovitskiy2020vit} later showed with the Vision Transformer (ViT) that an image, split into fixed-size patches and treated as a token sequence, could be processed directly by a standard Transformer encoder without any convolutional inductive bias, provided sufficient pretraining data. However, ViT's global self-attention scales quadratically with the number of patches, which becomes expensive at high resolution. Liu et al.~\cite{liu2021swin} addressed this with the Swin Transformer, which restricts self-attention to non-overlapping local windows and alternates regular and shifted window partitions across successive blocks (W-MSA/SW-MSA) so that information can still propagate across window boundaries. Combined with a patch-merging operation that halves spatial resolution and doubles channel width between stages, Swin produces a hierarchical, multi-scale visual representation at linear rather than quadratic cost in the number of patches -- the property that motivates its use as the visual encoder in this work. Liu et al.\ also report stochastic-depth (DropPath) regularization as part of Swin's standard training recipe~\cite{liu2021swin}; its absence is one of the recipe defects we identify and correct in Section~\ref{sec:method}.
+
+\subsection{Medical and Radiology Image Captioning}
+Captioning in the medical domain is complicated by the fact that clinically relevant findings are often small, subtle, and spatially localized, and by the comparative scarcity of large, cleanly paired image--caption medical corpora relative to general-domain photography datasets. Pelka et al.~\cite{pelka2018roco} introduced ROCO (Radiology Objects in COntext), one of the first large-scale radiology image--caption datasets built from the PMC Open Access subset, enabling captioning research on real clinical figures rather than natural images. Rückert et al.~\cite{ruckert2024rocov2} released ROCOv2, an updated and expanded version of this dataset with improved image--caption--concept alignment, which is the dataset used for training and evaluation in this work (Section~\ref{sec:experiments}). ROCOv2 has since served as the basis for the ImageCLEFmedical Caption challenge; the 2023 edition's overview paper~\cite{ruckert2023imageclef} reports a DenseNet169-CNN-with-LSTM-decoder baseline against which the BLEU/ROUGE/CIDEr results in this paper are compared (Section~\ref{sec:results}). More recent work has moved from CNN-RNN pipelines toward Transformer-based medical captioning. Lee et al.~\cite{lee2022cross} propose a cross encoder--decoder Transformer with a global-local visual extractor for medical image captioning, combining coarse whole-image and fine region-level visual features before cross-attention decoding. Fadhilah and Utama~\cite{fadhilah2026transformer} similarly use a Transformer encoder--decoder for medical image captioning, augmented with UMLS concept-embedding supervision to ground generated text in clinical terminology. Both systems, like most recent medical captioning work, rely on CNN or pretrained Transformer backbones for the visual encoder; neither trains a Swin-style hierarchical window-attention encoder entirely from randomly initialized weights, which is the specific setting explored in this paper.
+
+\subsection{Positioning of This Work}
+Taken together, the literature above shows a clear architectural progression -- from CNN-LSTM encoder--decoder captioning~\cite{vinyals2015show,xu2015show,ijraset2022}, to attention-augmented CNN decoders, to fully Transformer-based encoder--decoder captioning built on ViT- or Swin-style visual backbones~\cite{dosovitskiy2020vit,liu2021swin,lee2022cross,fadhilah2026transformer} -- almost universally under the assumption of large-scale pretraining or at minimum a pretrained visual backbone. Medical captioning work built on ROCO/ROCOv2~\cite{pelka2018roco,ruckert2024rocov2,ruckert2023imageclef} typically follows the same pattern, pairing a pretrained CNN encoder (e.g., DenseNet169) with an LSTM or Transformer decoder. This paper instead studies a harder and less-explored setting: a Swin Transformer encoder and Transformer decoder implemented entirely from first principles and trained with randomly initialized weights, without any pretrained backbone, transformers library, or third-party captioning framework. Because a randomly initialized attention-based encoder has none of the inductive bias that ImageNet or masked-image pretraining would normally supply, it is also more exposed to the kind of representation collapse this paper investigates -- a failure mode in which the encoder's output becomes nearly image-independent and the decoder falls back to generic, high-frequency captions -- and to training-recipe sensitivities (initialization, regularization, learning-rate scheduling) that pretrained backbones are comparatively robust to. This framing positions the present work as a transparency- and diagnostics-focused complement to the pretrained-backbone medical captioning literature, rather than a direct benchmark-accuracy competitor to it.
+
+\section{Methodology}
+\label{sec:method}
+
+The proposed system follows an encoder--decoder design. A Swin Transformer encoder maps a $224\times224\times3$ radiology image to a fixed-size set of visual tokens, and an autoregressive Transformer decoder consumes those tokens as memory to generate a caption one word at a time. Every component -- patch embedding, windowed and shifted-window attention, patch merging, masked self-attention, cross-attention, and the training loop itself -- is implemented directly with primitive \texttt{torch.nn} layers, with no pretrained weights and no third-party Transformer or vision library. This section describes the architecture as designed (Sections~\ref{sec:method-encoder}--\ref{sec:method-vocab}), then describes the training recipe in its corrected form together with the defects it replaces (Section~\ref{sec:method-training}) and the diagnostic test used to verify the architecture independently of the recipe (Section~\ref{sec:method-verify}).
+
+\subsection{Swin Transformer Encoder}
+\label{sec:method-encoder}
+
+\subsubsection{Patch Embedding}
+The input image is first divided into non-overlapping $4\times4$ patches using a stride-4 convolution (\texttt{PatchEmbed}), which is mathematically equivalent to flattening each patch and applying a shared linear projection. This produces a $56\times56$ grid of tokens with embedding dimension $C=96$, followed by layer normalization.
+
+\subsubsection{Window and Shifted-Window Self-Attention}
+Rather than computing self-attention across all $56\times56=3136$ tokens -- which would scale quadratically with token count -- the encoder partitions the token grid into non-overlapping $7\times7$ windows and restricts multi-head self-attention to within each window (\texttt{WindowAttention}). A learned relative position bias is added to the attention logits: for every possible relative offset $(\Delta h, \Delta w)$ between two positions inside a window, a bias term is looked up from a table of shape $(2\cdot7-1)^2 \times \text{heads}$ and added to the corresponding attention score, replacing the fixed absolute positional encoding used in the original Transformer.
+
+Restricting attention to fixed windows would prevent tokens from ever exchanging information across window boundaries. Following the shifted-window design, alternating blocks within each stage cyclically shift the token grid by $\lfloor \text{window\_size}/2 \rfloor$ pixels before partitioning (\texttt{SwinBlock}, even-indexed blocks use regular W-MSA with \texttt{shift\_size=0}; odd-indexed blocks use shifted SW-MSA). Because the shift can create windows that mix content from non-adjacent regions of the original grid, an attention mask is precomputed per shifted block (\texttt{\_build\_shift\_mask}) that assigns a large negative bias ($-100.0$, rather than $-\infty$, to avoid a known softmax NaN issue on the Apple MPS backend) to attention scores between tokens that were not spatially adjacent before the shift. Each block applies pre-norm residual connections around both the (shifted-)window attention and a two-layer GELU feed-forward MLP.
+
+\subsubsection{Patch Merging and Hierarchical Stages}
+After every stage except the last, a patch-merging layer (\texttt{PatchMerging}) concatenates each $2\times2$ neighborhood of tokens along the channel dimension, applies layer normalization, and linearly projects back down to $2C$ channels -- halving spatial resolution while doubling channel width. The encoder stacks four such stages (\texttt{BasicLayer}) with depths $(2,2,6,2)$ and attention head counts $(3,6,12,24)$, following the Swin-T configuration. Starting from $56\times56\times96$, the four stages progressively reduce the representation to $28\times28\times192 \rightarrow 14\times14\times384 \rightarrow 7\times7\times768$. A final layer normalization is applied, yielding $49$ visual tokens of dimension $768$, which serve as the memory input to the decoder.
+
+\subsection{Transformer Decoder}
+\label{sec:method-decoder}
+
+The decoder (\texttt{CaptionDecoder}) is a six-layer autoregressive Transformer that generates the caption token by token, conditioned on the 49 Swin visual tokens.
+
+\subsubsection{Token Embedding and Positional Encoding}
+Caption tokens are first mapped to $d_{model}=768$-dimensional vectors through a learned embedding table, matching the encoder's output dimension so no additional projection is needed between encoder and decoder. Fixed sinusoidal positional encodings (\texttt{PositionalEncoding}) are added to the token embeddings to inject sequence-order information, since self-attention itself is permutation-invariant.
+
+\subsubsection{Decoder Layer: Masked Self-Attention, Cross-Attention, Feed-Forward}
+Each of the six decoder layers (\texttt{DecoderLayer}) applies three sub-layers in sequence, each wrapped in a residual connection followed by post-layer-norm:
+\begin{enumerate}
+    \item \textbf{Masked self-attention} over the caption generated so far, using a lower-triangular causal mask so that position $t$ can only attend to positions $\le t$;
+    \item \textbf{Cross-attention}, in which caption token representations act as queries while the 49 Swin encoder tokens act as keys and values -- this is the mechanism through which visual information enters the language stream, allowing each generated word to attend to the relevant regions of the image;
+    \item \textbf{Position-wise feed-forward network}, a two-layer GELU MLP with hidden dimension $4\times d_{model}=3072$.
+\end{enumerate}
+All three attention operations (self-attention, cross-attention, and the encoder's window attention) share the same manually implemented multi-head attention routine, which scales dot-product scores by $1/\sqrt{d_k}$ and, when a mask is supplied, fills masked positions with $-100.0$ before the softmax -- the same numerically stable masking convention used throughout the encoder and, following a fix described in Section~\ref{sec:method-training}, throughout autoregressive generation as well. The final decoder output is projected through a linear layer to vocabulary-sized logits at every position.
+
+\subsection{Tokenization and Vocabulary}
+\label{sec:method-vocab}
+
+Captions are tokenized with a lightweight regex-based tokenizer (\texttt{Vocab.tokenize}): text is lowercased, all characters outside \texttt{[a-z0-9]} are stripped, and the result is whitespace-split. No subword tokenization (e.g., BPE) is used. A vocabulary is built from the training captions only, keeping every token with frequency $\ge 2$ and adding four special tokens (\texttt{<pad>}, \texttt{<sos>}, \texttt{<eos>}, \texttt{<unk>}); the final vocabulary is sorted alphabetically for a stable index mapping. Each caption is encoded as \texttt{<sos>} + tokens (truncated to \texttt{max\_len}$-2$) + \texttt{<eos>}, right-padded to a fixed length of 40 tokens.
+
+\subsection{Training Procedure}
+\label{sec:method-training}
+
+The full model (\texttt{SwinCaptioningModel}) is trained end-to-end with teacher forcing: at each training step, the decoder is given the ground-truth caption shifted right as input and is trained to predict the ground-truth caption shifted left as the target, so that every position is supervised by the actual next word rather than the model's own previous prediction. The training objective is cross-entropy with label smoothing ($\varepsilon=0.1$), computed over all non-padding positions (\texttt{ignore\_index} set to the \texttt{<pad>} id).
+
+An initial training run using this objective produced a model whose encoder output showed near-total representation collapse (quantified in Section~\ref{sec:results}) and whose decoder converged to a handful of generic captions regardless of the input image. Because the architecture in Sections~\ref{sec:method-encoder}--\ref{sec:method-vocab} matches the standard Swin/Transformer design, we treated this as a training-recipe problem rather than re-deriving the architecture, and audited the training code directly. The audit identified three concrete defects, each of which we fixed:
+
+\begin{itemize}
+    \item \textbf{Missing weight initialization.} With the exception of the encoder's relative-position-bias table, no layer received explicit initialization; \texttt{torch.nn}'s default initializers were used throughout. We add a model-wide initializer (\texttt{\_init\_weights}, applied via \texttt{self.apply}) that sets every \texttt{Linear} weight from a truncated normal distribution with $\text{std}=0.02$ and zeros its bias, and sets every \texttt{LayerNorm} weight to one and bias to zero -- the standard initialization scheme for Transformer-family models.
+    \item \textbf{Absent stochastic-depth regularization.} The original Swin Transformer recipe uses DropPath (stochastic depth) across encoder blocks~\cite{liu2021swin}; this implementation had no DropPath and no attention/projection dropout in the encoder. We add a \texttt{DropPath} module and apply it around both residual branches of every \texttt{SwinBlock}, with a per-block drop probability that increases linearly from $0$ to $0.1$ across the 12 encoder blocks (\texttt{torch.linspace} over the concatenated depths $(2,2,6,2)$).
+    \item \textbf{A learning-rate schedule that stopped training at its worst point.} The original configuration used a peak learning rate of $5\times10^{-4}$ with 5-epoch warmup and cosine decay to zero over 60 epochs, combined with early stopping after 6 epochs without validation-loss improvement. In practice, validation loss plateaued immediately after warmup completed at epoch 5 -- so early stopping consistently halted training in the same short window in which the learning rate was still at or near its peak, before cosine decay had a chance to stabilize the model. We lower the peak learning rate to $2\times10^{-4}$, keeping the same warmup/decay shape and early-stopping patience, so that the schedule and the patience window are better matched.
+\end{itemize}
+A fourth, lower-severity inconsistency was also corrected: autoregressive generation (Section~\ref{sec:method-inference}) masked disallowed tokens with $-\infty$, while the encoder and decoder both use $-100.0$ for numerically stable masking on the Apple MPS backend (Section~\ref{sec:method-encoder}); generation now uses $-100.0$ throughout, consistent with the rest of the model.
+
+With these fixes applied, optimization otherwise uses AdamW with the corrected peak learning rate of $2\times10^{-4}$, linear warmup over the first 5 epochs followed by cosine decay to zero over the remaining epochs, and gradient-norm clipping at $1.0$. Following standard practice for Transformer and Swin-style models, weight decay ($0.05$) is applied only to $\ge 2$-dimensional weight matrices; all 1-D parameters (LayerNorm weights/biases, linear biases) and the encoder's relative-position-bias table are placed in a separate parameter group with weight decay disabled, since decaying these distorts normalization scale and the learned window position bias without improving generalization. Training uses a batch size of 32, runs for up to 60 epochs, and stops early if validation loss does not improve for 6 consecutive epochs; the checkpoint with the best validation loss is retained for evaluation and inference. Input images are resized to $224\times224$, augmented during training with small random rotations ($\pm5^{\circ}$) and color jitter, and normalized with standard ImageNet channel statistics.
+
+\subsection{Architecture Verification: Ten-Example Overfitting Test}
+\label{sec:method-verify}
+
+Before attributing the collapse behavior to data scale or spending further compute on full training runs, we verify that the architecture itself -- gradient flow between encoder and decoder, causal and window masking, and target alignment -- is capable of learning at all. Following standard practice for diagnosing encoder--decoder training failures, we construct a minimal sanity check: a fixed batch of 10 real image--caption pairs, a vocabulary built with no minimum frequency threshold so that no token maps to \texttt{<unk>}, and no weight decay or label smoothing (to isolate raw optimization behavior). The model is optimized with AdamW at a low learning rate ($1\times10^{-4}$) for 400 steps on this fixed batch, and we track both the training loss and the ratio of encoder-to-decoder gradient norms at each logging step, since a persistently vanishing ratio would indicate gradient starvation at the cross-attention boundary rather than a downstream training-recipe issue. A model that cannot drive its loss near zero and reproduce all 10 training captions under these conditions has an architectural defect that no amount of additional data or recipe tuning will fix; a model that passes this test has its architecture confirmed sound, redirecting further investigation entirely to the training recipe. We run this test before and after the fixes in Section~\ref{sec:method-training} to confirm the fixes do not alter the model's basic learnability; results are reported in Section~\ref{sec:results-verify}.
+
+\subsection{Inference: Autoregressive Generation}
+\label{sec:method-inference}
+
+At inference time, the model generates captions autoregressively (\texttt{SwinCaptioningModel.generate}): the encoder computes the 49 visual tokens once, and the decoder is repeatedly queried starting from a single \texttt{<sos>} token, appending the greedily chosen highest-probability next token at each step (\texttt{argmax} decoding) until an \texttt{<eos>} token is produced or a maximum length of 40 tokens is reached. Two decoding-time constraints are applied to the logits before each \texttt{argmax}: the immediately preceding token is masked out (with the $-100.0$ convention described in Section~\ref{sec:method-training}) to prevent trivial immediate repetition, and any token that would complete a trigram already seen earlier in the sequence is masked out (trigram blocking), reducing repeated phrases in the generated caption without requiring beam search.
+
+\section{Experimental Setup}
+\label{sec:experiments}
+
+\subsection{Dataset}
+All experiments use ROCOv2~\cite{ruckert2024rocov2}, a large-scale radiology image--caption dataset. Following the diagnostic goals of this paper, we deliberately train on controlled subsets of the full corpus rather than the entire training split, so that the effect of data scale can be isolated from the effect of the recipe fixes in Section~\ref{sec:method-training}. Two training-set sizes are used, 2,000 and 5,000 image--caption pairs (the first $N$ rows of the training CSV in each case), with a fixed 2,000-pair validation set held constant across both configurations so that validation-loss trajectories are directly comparable. Vocabularies are rebuilt from scratch for each training-set size using the frequency-$\ge2$ rule in Section~\ref{sec:method-vocab}, yielding 2,682 tokens at 2,000 training images and 4,493 tokens at 5,000 training images. A held-out set of ROCOv2 test images is used only for the qualitative representation-health diagnostics in Section~\ref{sec:results-collapse} and never for training or checkpoint selection.
+
+\subsection{Caption Quality Evaluation Protocol}
+\label{sec:experiments-eval}
+Generated captions are scored against ground-truth references using BLEU-1--4, ROUGE-L, and CIDEr-D, all implemented from scratch (no \texttt{nltk}, \texttt{pycocoevalcap}, or Java dependency) so that the evaluation pipeline shares no code with the training pipeline. Following the ROCOv2/ImageCLEFmedical baseline setup~\cite{ruckert2023imageclef}, we evaluate on the first 120 images of the validation split, using greedy decoding with trigram blocking as described in Section~\ref{sec:method-inference}. Two caveats apply to the CIDEr-D numbers reported in Section~\ref{sec:results}: term-frequency weights are computed on the evaluation set itself rather than a separate large reference corpus, and the reported values use a $\times10$ scale relative to the standard convention; absolute CIDEr-D values should therefore be read as relative, within-paper comparisons rather than literal comparisons to externally reported CIDEr-D scores. In addition to the standard metrics, we report the percentage of \emph{distinct} generated captions in each 120-image evaluation set, since a collapsed model can achieve non-trivial BLEU/ROUGE scores simply by memorizing a small number of generic, high-frequency captions; a low distinct-caption percentage is therefore a direct behavioral signature of collapse that n-gram overlap metrics alone can miss.
+
+\subsection{Representation-Health Diagnostic Protocol}
+\label{sec:experiments-collapse}
+To measure encoder representation collapse directly, independent of decoder behavior, we apply three diagnostics to the 49$\times$768 encoder output on held-out test images, following the methodology used to first detect the collapse:
+\begin{enumerate}
+    \item \textbf{Within-image token similarity.} For a given image, we compute the pairwise cosine similarity between all $\binom{49}{2}$ pairs of output tokens. A healthy, spatially varying representation should show a wide spread of similarities; a collapsed representation shows nearly all pairs with cosine similarity close to 1, i.e., the 49 tokens are nearly identical regardless of spatial location.
+    \item \textbf{Variance decomposition.} We decompose the total variance of the $49\times768$ output tensor into variance \emph{across the 49 token positions} (averaged over the 768 channels) versus variance \emph{across the 768 channels} (averaged over the 49 positions). A low across-token share indicates that almost all of the signal is a constant pattern repeated at every spatial position, with only a small residual distinguishing one location from another.
+    \item \textbf{Synthetic-image control experiment.} We run the encoder on four synthetic, content-free inputs -- solid black, solid white, uniform 50\% grey, and uniform random noise, each normalized identically to real images -- and compare the mean-pooled representation of each real test image to the mean-pooled representations of the other real image and of the four synthetic controls. If a real image's representation is as similar (or more similar) to random noise or a flat color as it is to another real image, the encoder is not meaningfully using image content.
+\end{enumerate}
+We apply this protocol to the same two representative ROCOv2 test images throughout Section~\ref{sec:results} -- a chest CT scan and an angiogram -- chosen because they differ substantially in visual contrast and structural detail, which Section~\ref{sec:results-collapse} shows to be relevant to how collapse resolves under the corrected recipe.
+
+\section{Results}
+\label{sec:results}
+
+\subsection{Architecture Verification}
+\label{sec:results-verify}
+The ten-example overfitting test described in Section~\ref{sec:method-verify} passes cleanly both before and after the recipe fixes in Section~\ref{sec:method-training}. Training loss falls from an initial value of approximately 4.8 to below $0.002$ within 400 steps, and all 10 generated captions closely reproduce their corresponding ground-truth captions verbatim under greedy decoding. The encoder-to-decoder gradient-norm ratio, logged every 25 steps, settles into an approximate range of $0.25$--$1.0$ throughout training and does not collapse toward zero, indicating that gradients reach the encoder through cross-attention without vanishing. This result rules out an architectural or gradient-flow defect as the cause of the collapse observed in full training runs (Section~\ref{sec:results-collapse}) and confirms that the encoder--decoder wiring, causal and window masking, and target alignment described in Section~\ref{sec:method} are implemented correctly. Re-running the same test after applying the weight-initialization, DropPath, and learning-rate fixes reproduces the same qualitative result (loss below $0.002$, correct reproduction of all 10 captions), confirming that the fixes do not alter the model's basic learnability -- their effect is isolated to full-scale training behavior, examined next.
+
+\subsection{Effect of the Corrected Recipe and Data Scale on Representation Collapse}
+\label{sec:results-collapse}
+
+\begin{table}[t]
+\centering
+\caption{Within-image token cosine similarity (mean over all token pairs) on two representative test images, before and after the recipe fixes. A value near 1.0 indicates the 49 encoder tokens are nearly identical (collapsed); a low or negative value indicates the tokens carry distinguishable, spatially varying content.}
+\label{tab:collapse}
+\small
+\begin{tabular}{lccc}
+\toprule
+Image & Pre-fix & 2{,}000 imgs & 5{,}000 imgs \\
+\midrule
+Chest CT & 0.998 & 0.083 & 0.088 \\
+Angiogram & 0.9995 & 0.9995 & 0.956 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The pre-fix checkpoint shows severe representation collapse by every diagnostic in Section~\ref{sec:experiments-collapse}: within-image token cosine similarity averages 0.998--0.9995 across both test images (95\%+ of token pairs exceed 0.99 similarity), only 0.225\% of the total variance in the $49\times768$ output tensor is attributable to differences \emph{across} the 49 token positions (the remaining 99.775\% is a constant pattern repeated at every position), and the synthetic-control experiment shows the chest CT image's representation is \emph{more} similar to pure random noise (cosine 0.9987) than to a second real image (cosine 0.9793) -- a direct, quantitative signature that the encoder is not using image content.
+
+Table~\ref{tab:collapse} reports within-image token cosine similarity for the same two images under the corrected recipe at both training-set scales. The chest CT image shows a large, immediate improvement at both scales: token cosine similarity drops from 0.998 to approximately 0.08--0.09, meaning the 49 tokens now carry substantially different content depending on spatial position. The angiogram, by contrast, remains fully collapsed at 2,000 training images (0.9995, numerically unchanged from the pre-fix checkpoint) and only begins to improve at 5,000 training images (0.956). This asymmetry indicates that the severity of residual collapse under the corrected recipe is image-dependent -- plausibly related to the amount of visual contrast and structural detail available in the input, since the angiogram is a lower-contrast, less texturally varied image than the chest CT -- and that it responds to increased training-set scale rather than being fully resolved by the recipe fixes alone. The synthetic-control experiment shows a consistent pattern at both scales: uniform, content-free inputs (solid black, white, grey) still produce fully collapsed token representations (cosine $=1.0$), which is expected behavior for genuinely constant input rather than a defect, since a spatially uniform image provides no content for the encoder to differentiate; random noise input, in contrast, produces a non-collapsed but still not clearly content-discriminative representation, and the core diagnostic from the pre-fix checkpoint -- whether a real image's representation is closer to another real image than to noise -- continues to only partially resolve at these data scales, motivating the larger-scale training discussed as future work in Section~\ref{sec:conclusion}.
+
+\subsection{Caption Quality Metrics}
+\label{sec:results-metrics}
+
+\begin{table}[t]
+\centering
+\caption{Caption-quality metrics on 120 ROCOv2 validation images. The pretrained ROCOv2 CNN-LSTM baseline~\cite{ruckert2023imageclef} uses a pretrained DenseNet169 encoder and is included for scale, not as a like-for-like comparison; all rows above it are trained entirely from randomly initialized weights.}
+\label{tab:metrics}
+\small
+\begin{tabular}{lccccc}
+\toprule
+Model & B-1 & B-2 & B-3 & B-4 & Dist.\% \\
+\midrule
+Pre-fix & 0.077 & 0.043 & 0.024 & 0.014 & 11.7 \\
+Ours, 2k & 0.110 & 0.056 & 0.025 & 0.009 & 18.3 \\
+Ours, 5k & 0.132 & 0.063 & 0.030 & 0.010 & 20.8 \\
+\midrule
+CNN-LSTM~\cite{ruckert2023imageclef} & 0.586 & 0.498 & 0.347 & 0.127 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:metrics} reports BLEU-1--4 and the distinct-caption percentage across the three from-scratch checkpoints, alongside the pretrained-backbone baseline for scale. ROUGE-L is essentially flat across all three from-scratch checkpoints (0.148 pre-fix, 0.134 at both 2,000 and 5,000 images); CIDEr-D (subject to the scale caveat in Section~\ref{sec:experiments-eval}) is 0.142 pre-fix, 0.093 at 2,000 images, and 0.125 at 5,000 images. Two trends are consistent across both data scales relative to the pre-fix checkpoint: BLEU-1--3 and the distinct-caption percentage improve monotonically with the corrected recipe and increasing data scale (distinct captions rise from 11.7\% to 18.3\% to 20.8\%), while BLEU-4, ROUGE-L, and CIDEr-D are slightly \emph{below} the pre-fix checkpoint's values at 2,000 images before partially recovering at 5,000. We attribute this to the pre-fix checkpoint's higher-order overlap scores being inflated by memorization: with only three generic caption templates covering 77.5\% of all 120 outputs, the model can accumulate exact higher-order n-gram matches whenever a reference caption happens to resemble one of those templates, which is a different phenomenon from genuinely modeling image content. The corrected-recipe checkpoints generate more varied captions (Section~\ref{sec:results-collapse} shows the encoder is genuinely differentiating between at least some images), at the cost of exact-phrase overlap with references while the model remains far from convergence at these small data scales. All three from-scratch configurations remain well below the pretrained CNN-LSTM baseline~\cite{ruckert2023imageclef}, which is expected given the baseline's pretrained DenseNet169 encoder and should not be read as a like-for-like performance comparison.
+
+\subsection{Discussion}
+\label{sec:results-discussion}
+Taken together, these results support three conclusions. First, the architecture-verification test (Section~\ref{sec:results-verify}) confirms that the representation collapse observed in this work is not attributable to an architectural defect in the Swin encoder or Transformer decoder as implemented; the same architecture, given a corrected training recipe, produces measurably different and more content-dependent encoder representations. Second, the three recipe defects identified in Section~\ref{sec:method-training} -- particularly the learning-rate/early-stopping mismatch -- are consequential: both corrected-recipe runs continue improving past the epoch at which the pre-fix checkpoint's validation loss had already plateaued (epoch 3), reaching their best validation loss at epoch 5 instead. Third, representation collapse under random initialization at small data scale is not a single on/off phenomenon but a graded, image-dependent one: some images (the chest CT) resolve almost completely with the corrected recipe alone, while others (the angiogram) require additional training data before any improvement appears at all. This suggests that the residual collapse remaining at 5,000 images is primarily a data-scale limitation rather than a further recipe defect, and that the natural next experiment -- training at substantially larger scale with the corrected recipe -- is well motivated by evidence rather than assumption, unlike the original, unaudited comparison between 2,000 and 15,000 images that first motivated this investigation.
+
+\section{Conclusion and Future Work}
+\label{sec:conclusion}
+
+We presented a fully from-scratch Swin Transformer encoder--decoder network for radiology image captioning and, upon observing severe representation collapse in an initial training run, conducted a systematic diagnostic audit rather than assuming the cause. A mandatory ten-example overfitting test verified that the encoder--decoder architecture, gradient flow, and masking are implemented correctly, ruling out an architectural explanation for the collapse. A direct audit of the training code then identified three concrete, fixable defects -- missing weight initialization, absent stochastic-depth regularization, and a learning-rate schedule that terminated training at its worst point -- which we corrected and re-verified against the same overfitting test. Retraining with the corrected recipe at two controlled data scales (2,000 and 5,000 ROCOv2 images) showed a measurable, image-dependent reduction in representation collapse and a monotonic improvement in caption diversity and low-order n-gram overlap, without fully eliminating collapse on lower-contrast inputs at the scales tested.
+
+This work has several limitations. All reported training runs use small subsets of the full $\sim$60,000-image ROCOv2 training split, so absolute caption-quality numbers should be read as evidence of a corrected, learning-capable recipe rather than as an estimate of the architecture's achievable performance; the corrected-recipe checkpoints remain far below the pretrained-backbone CNN-LSTM baseline, which is expected given the difference in encoder initialization and is not a like-for-like comparison. METEOR is not implemented in our evaluation pipeline, and CIDEr-D uses evaluation-set term frequencies and a non-standard scale (Section~\ref{sec:experiments-eval}). Each configuration was trained once, without multiple random seeds, so reported numbers should be treated as point estimates rather than statistically robust averages. Finally, the residual, image-dependent collapse documented in Section~\ref{sec:results-collapse} remains only partially understood at the data scales tested.
+
+Directly motivated by these limitations, future work includes: (i) training with the corrected recipe at substantially larger scale (10,000--60,000 images), now that the recipe's correctness is verified rather than assumed, to test whether the image-dependent collapse observed on the angiogram continues to resolve with more data; (ii) adding an auxiliary concept-classification loss on the encoder output, using ROCOv2's concept annotations, to give the encoder a direct supervisory signal independent of whatever gradient reaches it through cross-attention, which may address low-contrast images more directly than data scale alone; (iii) replacing greedy decoding with beam search, and increasing the maximum caption length beyond 40 tokens, since 10.4\% of ROCOv2 training captions are truncated under the current limit; and (iv) saving optimizer and scheduler state to enable proper training resumption across sessions.
+
+\begin{thebibliography}{00}
+
+\bibitem{vinyals2015show}
+O.~Vinyals, A.~Toshev, S.~Bengio, and D.~Erhan, ``Show and tell: A neural image caption generator,'' in \emph{Proc. IEEE Conf. Comput. Vis. Pattern Recognit. (CVPR)}, 2015, pp.~3156--3164.
+
+\bibitem{xu2015show}
+K.~Xu, J.~Ba, R.~Kiros, K.~Cho, A.~Courville, R.~Salakhutdinov, R.~Zemel, and Y.~Bengio, ``Show, attend and tell: Neural image caption generation with visual attention,'' in \emph{Proc. Int. Conf. Mach. Learn. (ICML)}, PMLR vol.~37, 2015, pp.~2048--2057.
+
+\bibitem{ijraset2022}
+M.~Pranay Kumar, V.~Snigdha, R.~Nandini, and B.~Indira Reddy, ``Image captioning generator using CNN and LSTM,'' \emph{Int. J. Res. Appl. Sci. Eng. Technol. (IJRASET)}, 2022, doi: 10.22214/ijraset.2022.44502.
+
+\bibitem{vaswani2017attention}
+A.~Vaswani, N.~Shazeer, N.~Parmar, J.~Uszkoreit, L.~Jones, A.~N. Gomez, L.~Kaiser, and I.~Polosukhin, ``Attention is all you need,'' in \emph{Adv. Neural Inf. Process. Syst. (NeurIPS)}, 2017, pp.~5998--6008.
+
+\bibitem{dosovitskiy2020vit}
+A.~Dosovitskiy, L.~Beyer, A.~Kolesnikov, D.~Weissenborn, X.~Zhai, T.~Unterthiner, M.~Dehghani, M.~Minderer, G.~Heigold, S.~Gelly, J.~Uszkoreit, and N.~Houlsby, ``An image is worth 16x16 words: Transformers for image recognition at scale,'' \emph{arXiv preprint arXiv:2010.11929}, 2020.
+
+\bibitem{liu2021swin}
+Z.~Liu, Y.~Lin, Y.~Cao, H.~Hu, Y.~Wei, Z.~Zhang, S.~Lin, and B.~Guo, ``Swin transformer: Hierarchical vision transformer using shifted windows,'' in \emph{Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV)}, 2021, pp.~10012--10022.
+
+\bibitem{pelka2018roco}
+O.~Pelka, S.~Koitka, J.~Rückert, F.~Nensa, and C.~M. Friedrich, ``Radiology objects in COntext (ROCO): A multimodal image dataset,'' in \emph{Intravascular Imaging and Computer Assisted Stenting, and Large-Scale Annotation of Biomedical Data and Expert Label Synthesis (CVII-STENT/LABELS Workshop, MICCAI)}, LNCS vol.~11043, Springer, 2018, pp.~180--189.
+
+\bibitem{ruckert2024rocov2}
+J.~Rückert, L.~Bloch, R.~Brüngel, A.~Idrissi-Yaghir, H.~Schäfer, C.~S. Schmidt, S.~Koitka, O.~Pelka, A.~Ben Abacha, A.~García Seco de Herrera, H.~Müller, P.~A. Horn, F.~Nensa, and C.~M. Friedrich, ``ROCOv2: Radiology objects in COntext version 2, an updated multimodal image dataset,'' \emph{Scientific Data}, vol.~11, art.~688, 2024.
+
+\bibitem{ruckert2023imageclef}
+J.~Rückert et al., ``Overview of ImageCLEFmedical 2023 -- caption prediction and concept detection,'' in \emph{CLEF 2023 Working Notes}, CEUR-WS vol.~3497, paper~108, 2023.
+
+\bibitem{lee2022cross}
+H.~Lee, H.~Cho, J.~Park, J.~Chae, and J.~Kim, ``Cross encoder-decoder transformer with global-local visual extractor for medical image captioning,'' \emph{Sensors}, vol.~22, no.~4, p.~1429, 2022.
+
+\bibitem{fadhilah2026transformer}
+H.~Fadhilah and N.~P. Utama, ``Transformer-based encoder-decoder model for medical image captioning with concept embedding,'' \emph{Jurnal Masyarakat Informatika}, vol.~17, no.~1, pp.~1--25, 2026.
+
+\end{thebibliography}
+
+\end{document}

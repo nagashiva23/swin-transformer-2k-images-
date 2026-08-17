@@ -15,16 +15,18 @@ no `transformers`, no pretrained weights, no third-party captioning repo.
 |---|---|
 | `vocab.py` | Manual regex tokenizer + vocab builder |
 | `dataset.py` | ROCOv2 `Dataset` that loads images + captions |
-| `swin_model.py` | The Swin encoder: PatchEmbed → WindowAttention → SwinBlock (W-MSA/SW-MSA) → PatchMerging → BasicLayer stages → SwinEncoder |
+| `swin_model.py` | The Swin encoder: PatchEmbed → WindowAttention → SwinBlock (W-MSA/SW-MSA) → PatchMerging → BasicLayer stages → SwinEncoder. Includes weight init (`trunc_normal_`) and `DropPath` (stochastic depth, linearly increasing 0→0.1 across the 12 encoder blocks). |
 | `decoder_model.py` | The caption decoder: PositionalEncoding → manual MultiHeadAttention → DecoderLayer (masked self-attn + cross-attn + FFN) → CaptionDecoder |
-| `caption_model.py` | Wires encoder + decoder into `SwinCaptioningModel`, plus greedy `.generate()` |
-| `train.py` | Training loop — currently `TRAIN_SAMPLES = 15000`, `VALID_SAMPLES = 2000`, 60 epochs w/ early stopping |
+| `caption_model.py` | Wires encoder + decoder into `SwinCaptioningModel` (applies the model-wide weight init), plus greedy `.generate()` with trigram blocking (masking constant fixed to `-100.0`, matching the rest of the model) |
+| `train.py` | Training loop — `TRAIN_SAMPLES = 5000`, `VALID_SAMPLES = 2000`, `PEAK_LR = 2e-4`, 60 epochs w/ early stopping (patience 6) |
 | `generate.py` | Loads a checkpoint and captions a single image |
-| `metrics.py` | **New.** BLEU-1..4 / ROUGE-L / CIDEr-D, implemented from scratch (no nltk/pycocoevalcap needed) |
-| `eval.py` | **New.** Runs the model over a whole split (train/valid/test) and reports the metrics above, plus a caption-collapse check |
+| `metrics.py` | BLEU-1..4 / ROUGE-L / CIDEr-D, implemented from scratch (no nltk/pycocoevalcap needed) |
+| `eval.py` | Runs the model over a whole split (train/valid/test) and reports the metrics above, plus a caption-collapse check |
+| `tiny_overfit.py` | **New.** Mandatory architecture-verification test — trains on 10 fixed image/caption pairs for 400 steps; if loss doesn't collapse to ~0 and reproduce the captions, the defect is architectural, not a training-recipe issue |
+| `collapse_check.py` | **New.** Representation-health audit for a checkpoint: within-image token cosine similarity, variance decomposition, and a synthetic black/white/grey/noise control experiment |
 
-For the analysis behind the "known issues" below (checkpoint/vocab
-mismatch, early loss plateau, dataset stats, benchmark comparison), see
+For the full audit trail (bug list, gradient-flow analysis, representation-collapse
+evidence, before/after metrics), see **`MODEL_VALIDATION_REPORT.md`** and
 **`FINDINGS.md`**.
 
 ## Dataset structure
@@ -60,9 +62,9 @@ worth knowing about before your faculty meeting:
 
 | Split | Available on disk | Actually used by `train.py` |
 |---|---|---|
-| train | 59,958 | first 15,000 (`TRAIN_SAMPLES`) |
+| train | 59,958 | first 5,000 (`TRAIN_SAMPLES`) |
 | valid | 9,904 | first 2,000 (`VALID_SAMPLES`) |
-| test | 9,927 | **0 — no script currently touches the test set** |
+| test | 9,927 | used only for qualitative diagnostics (`collapse_check.py`), never for training/checkpoint selection |
 
 `eval.py` (added here) is what closes that last gap — it's the first
 script in the project that actually scores against `test_captions.csv`.
@@ -86,10 +88,22 @@ pip install torch torchvision pandas pillow
 python train.py
 ```
 
-Trains on the first 15,000 rows of `train_captions.csv` / `train_images`,
+Trains on the first 5,000 rows of `train_captions.csv` / `train_images`,
 validates on 2,000 rows of `valid_captions.csv` / `valid_images`, saves
 `swin_caption_best.pt` (best val loss) and `swin_caption_last.pt` into
 `/Users/nagashiva/Downloads/rocov2`.
+
+To run the mandatory architecture-verification test before any full training run:
+
+```bash
+python tiny_overfit.py
+```
+
+To audit a checkpoint's encoder for representation collapse:
+
+```bash
+python collapse_check.py /Users/nagashiva/Downloads/rocov2/swin_caption_best.pt test_007757 test_000004
+```
 
 To caption a single image:
 
@@ -116,21 +130,42 @@ over the caption so far, cross-attention over the 49 Swin tokens, then a
 GELU feed-forward block — trained with teacher forcing and cross-entropy
 (padding ignored, label smoothing 0.1).
 
-## Known issues (short version — see FINDINGS.md for the full writeup)
+## Status (see `MODEL_VALIDATION_REPORT.md` for the full audit)
 
-- `swin_caption_best.pt`'s embedded vocab (2,682 words) matches training on
-  only **2,000** samples, not the 15,000 the current `train.py` targets —
-  the checkpoint you're testing with is from an older run.
-- That checkpoint's best validation loss was logged at **epoch 3** and
-  never improved again — the model converged to a generic, image-agnostic
-  caption almost immediately (this is the "encoder representation
-  collapse" `train.py`'s own docstring warns about).
-- `AdamW(model.parameters(), weight_decay=0.05)` applies weight decay to
-  every parameter, including LayerNorm/bias/relative-position-bias —
-  standard Swin/Transformer recipes exclude 1-D params from decay.
-- `decoder_model.py` masks with literal `-inf` while `swin_model.py`
-  deliberately uses `-100.0` for the same purpose (likely to avoid a known
-  MPS softmax NaN issue) — worth making consistent given you're training
-  on Apple Silicon (M-series) MPS.
-- `irdid.ipynb.py` is a dead, unimported duplicate of `vocab.py` — safe to
-  delete.
+An early checkpoint showed severe **encoder representation collapse**: the
+49 output tokens were nearly identical regardless of image content, and the
+decoder converged to a handful of generic captions. A diagnostic audit
+separated this into two questions:
+
+1. **Is the architecture broken?** `tiny_overfit.py` (10 fixed image/caption
+   pairs, 400 steps) passes cleanly both before and after the fixes below —
+   loss falls to ~0.001 and all 10 captions are reproduced correctly. This
+   rules out a gradient-flow/masking/wiring defect.
+2. **Is the training recipe broken?** Yes — three concrete bugs, now fixed:
+   - No weight initialization beyond the relative-position-bias table —
+     fixed with `trunc_normal_(std=0.02)` on Linear weights and standard
+     LayerNorm init, applied via `self.apply(_init_weights)`.
+   - No stochastic depth (DropPath) in the encoder — added, linearly
+     increasing 0→0.1 across the 12 encoder blocks.
+   - `PEAK_LR = 5e-4` combined with `EARLY_STOP_PATIENCE = 6` meant training
+     always stopped right as the LR schedule peaked (best epoch = 3 in every
+     run). Lowered to `2e-4`.
+   - (Lower severity) `generate()`'s two anti-repetition guards used
+     `float("-inf")` instead of the `-100.0` convention used everywhere else
+     in the model — now consistent.
+
+**Result after fixes** (`collapse_check.py` + `eval.py`, see
+`MODEL_VALIDATION_REPORT.md` for full tables): representation collapse is
+reduced, monotonically with more training data, but not yet fully resolved
+— a high-contrast image (chest CT) shows large token-diversity gains at
+both 2,000 and 5,000 training images, while a lower-contrast image
+(angiogram) stays fully collapsed at 2,000 images and only starts improving
+at 5,000. Caption diversity and BLEU-1..3 improve monotonically with data
+scale; the model remains far below the pretrained-encoder CNN-LSTM baseline,
+as expected for a from-scratch encoder at this data scale.
+
+Open items: scale training further (10k–60k images) now that the recipe is
+verified; consider an auxiliary concept-classification loss
+(`train_concepts.csv` is present in the dataset but unused) to give the
+encoder a more direct gradient signal for low-contrast images; `irdid.ipynb.py`
+is a dead, unimported duplicate of `vocab.py` — safe to delete.

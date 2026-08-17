@@ -1,0 +1,64 @@
+% ============================================================
+% Methodology section for:
+% "A From-Scratch Swin Transformer Encoder--Decoder Network for
+%  Automated Radiology Image Captioning"
+%
+% Paste this \section directly after Related Work
+% (\label{sec:method}, as referenced in the Introduction's
+% roadmap paragraph). Content is drawn directly from the actual
+% implementation: swin_model.py, decoder_model.py,
+% caption_model.py, vocab.py, and train.py.
+% ============================================================
+
+\section{Methodology}
+\label{sec:method}
+
+The proposed system follows an encoder--decoder design. A Swin Transformer encoder maps a $224\times224\times3$ radiology image to a fixed-size set of visual tokens, and an autoregressive Transformer decoder consumes those tokens as memory to generate a caption one word at a time. Every component -- patch embedding, windowed and shifted-window attention, patch merging, masked self-attention, cross-attention, and the training loop itself -- is implemented directly with primitive \texttt{torch.nn} layers, with no pretrained weights and no third-party Transformer or vision library.
+
+\subsection{Swin Transformer Encoder}
+\label{sec:method-encoder}
+
+\subsubsection{Patch Embedding}
+The input image is first divided into non-overlapping $4\times4$ patches using a stride-4 convolution (\texttt{PatchEmbed}), which is mathematically equivalent to flattening each patch and applying a shared linear projection. This produces a $56\times56$ grid of tokens with embedding dimension $C=96$, followed by layer normalization.
+
+\subsubsection{Window and Shifted-Window Self-Attention}
+Rather than computing self-attention across all $56\times56=3136$ tokens -- which would scale quadratically with token count -- the encoder partitions the token grid into non-overlapping $7\times7$ windows and restricts multi-head self-attention to within each window (\texttt{WindowAttention}). A learned relative position bias is added to the attention logits: for every possible relative offset $(\Delta h, \Delta w)$ between two positions inside a window, a bias term is looked up from a table of shape $(2\cdot7-1)^2 \times \text{heads}$ and added to the corresponding attention score, replacing the fixed absolute positional encoding used in the original Transformer.
+
+Restricting attention to fixed windows would prevent tokens from ever exchanging information across window boundaries. Following the shifted-window design, alternating blocks within each stage cyclically shift the token grid by $\lfloor \text{window\_size}/2 \rfloor$ pixels before partitioning (\texttt{SwinBlock}, even-indexed blocks use regular W-MSA with \texttt{shift\_size=0}; odd-indexed blocks use shifted SW-MSA). Because the shift can create windows that mix content from non-adjacent regions of the original grid, an attention mask is precomputed per shifted block (\texttt{\_build\_shift\_mask}) that assigns a large negative bias ($-100.0$, rather than $-\infty$, to avoid a known softmax NaN issue on the Apple MPS backend) to attention scores between tokens that were not spatially adjacent before the shift. Each block applies pre-norm residual connections around both the (shifted-)window attention and a two-layer GELU feed-forward MLP.
+
+\subsubsection{Patch Merging and Hierarchical Stages}
+After every stage except the last, a patch-merging layer (\texttt{PatchMerging}) concatenates each $2\times2$ neighborhood of tokens along the channel dimension, applies layer normalization, and linearly projects back down to $2C$ channels -- halving spatial resolution while doubling channel width. The encoder stacks four such stages (\texttt{BasicLayer}) with depths $(2,2,6,2)$ and attention head counts $(3,6,12,24)$, following the Swin-T configuration. Starting from $56\times56\times96$, the four stages progressively reduce the representation to $28\times28\times192 \rightarrow 14\times14\times384 \rightarrow 7\times7\times768$. A final layer normalization is applied, yielding $49$ visual tokens of dimension $768$, which serve as the memory input to the decoder.
+
+\subsection{Transformer Decoder}
+\label{sec:method-decoder}
+
+The decoder (\texttt{CaptionDecoder}) is a six-layer autoregressive Transformer that generates the caption token by token, conditioned on the 49 Swin visual tokens.
+
+\subsubsection{Token Embedding and Positional Encoding}
+Caption tokens are first mapped to $d_{model}=768$-dimensional vectors through a learned embedding table, matching the encoder's output dimension so no additional projection is needed between encoder and decoder. Fixed sinusoidal positional encodings (\texttt{PositionalEncoding}) are added to the token embeddings to inject sequence-order information, since self-attention itself is permutation-invariant.
+
+\subsubsection{Decoder Layer: Masked Self-Attention, Cross-Attention, Feed-Forward}
+Each of the six decoder layers (\texttt{DecoderLayer}) applies three sub-layers in sequence, each wrapped in a residual connection followed by post-layer-norm:
+\begin{enumerate}
+    \item \textbf{Masked self-attention} over the caption generated so far, using a lower-triangular causal mask so that position $t$ can only attend to positions $\le t$;
+    \item \textbf{Cross-attention}, in which caption token representations act as queries while the 49 Swin encoder tokens act as keys and values -- this is the mechanism through which visual information enters the language stream, allowing each generated word to attend to the relevant regions of the image;
+    \item \textbf{Position-wise feed-forward network}, a two-layer GELU MLP with hidden dimension $4\times d_{model}=3072$.
+\end{enumerate}
+All three attention operations (self-attention, cross-attention, and the encoder's window attention) share the same manually implemented multi-head attention routine, which scales dot-product scores by $1/\sqrt{d_k}$ and, when a mask is supplied, fills masked positions with $-100.0$ before the softmax -- the same numerically stable masking convention used throughout the encoder, applied consistently across both networks. The final decoder output is projected through a linear layer to vocabulary-sized logits at every position.
+
+\subsection{Tokenization and Vocabulary}
+\label{sec:method-vocab}
+
+Captions are tokenized with a lightweight regex-based tokenizer (\texttt{Vocab.tokenize}): text is lowercased, all characters outside \texttt{[a-z0-9]} are stripped, and the result is whitespace-split. No subword tokenization (e.g., BPE) is used. A vocabulary is built from the training captions only, keeping every token with frequency $\ge 2$ and adding four special tokens (\texttt{<pad>}, \texttt{<sos>}, \texttt{<eos>}, \texttt{<unk>}); the final vocabulary is sorted alphabetically for a stable index mapping. Each caption is encoded as \texttt{<sos>} + tokens (truncated to \texttt{max\_len}$-2$) + \texttt{<eos>}, right-padded to a fixed length of 40 tokens.
+
+\subsection{Training Procedure}
+\label{sec:method-training}
+
+The full model (\texttt{SwinCaptioningModel}) is trained end-to-end with teacher forcing: at each training step, the decoder is given the ground-truth caption shifted right as input and is trained to predict the ground-truth caption shifted left as the target, so that every position is supervised by the actual next word rather than the model's own previous prediction. The training objective is cross-entropy with label smoothing ($\varepsilon=0.1$), computed over all non-padding positions (\texttt{ignore\_index} set to the \texttt{<pad>} id).
+
+Optimization uses AdamW with a peak learning rate of $5\times10^{-4}$, linear warmup over the first 5 epochs followed by cosine decay to zero over the remaining epochs, and gradient-norm clipping at $1.0$. Following standard practice for Transformer and Swin-style models, weight decay ($0.05$) is applied only to $\ge 2$-dimensional weight matrices; all 1-D parameters (LayerNorm weights/biases, linear biases) and the encoder's relative-position-bias table are placed in a separate parameter group with weight decay disabled, since decaying these distorts normalization scale and the learned window position bias without improving generalization. Training uses a batch size of 32, runs for up to 60 epochs, and stops early if validation loss does not improve for 6 consecutive epochs; the checkpoint with the best validation loss is retained for evaluation and inference. Input images are resized to $224\times224$, augmented during training with small random rotations ($\pm5^{\circ}$) and color jitter, and normalized with standard ImageNet channel statistics.
+
+\subsection{Inference: Autoregressive Generation}
+\label{sec:method-inference}
+
+At inference time, the model generates captions autoregressively (\texttt{SwinCaptioningModel.generate}): the encoder computes the 49 visual tokens once, and the decoder is repeatedly queried starting from a single \texttt{<sos>} token, appending the greedily chosen highest-probability next token at each step (\texttt{argmax} decoding) until an \texttt{<eos>} token is produced or a maximum length of 40 tokens is reached. Two decoding-time constraints are applied to the logits before each \texttt{argmax}: the immediately preceding token is masked out to prevent trivial immediate repetition, and any token that would complete a trigram already seen earlier in the sequence is masked out (trigram blocking), reducing repeated phrases in the generated caption without requiring beam search.
