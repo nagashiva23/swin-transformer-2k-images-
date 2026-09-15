@@ -1,5 +1,6 @@
 import os
 import copy
+import math
 import torch
 import torchvision.transforms as T
 from torch.utils.data import DataLoader
@@ -13,8 +14,8 @@ VALID_IMAGES = os.path.join(ROOT, "valid_images", "valid")
 TRAIN_CSV = os.path.join(ROOT, "train_captions.csv")
 VALID_CSV = os.path.join(ROOT, "valid_captions.csv")
 
-TRAIN_SAMPLES = 5000
-VALID_SAMPLES = 2000
+TRAIN_SAMPLES = None   # None = train on full dataset (59,958 images)
+VALID_SAMPLES = None   # None = validate on full dataset (9,904 images)
 MAX_LEN = 40
 BATCH_SIZE = 32
 EPOCHS = 60
@@ -23,7 +24,7 @@ WARMUP_EPOCHS = 5
 WEIGHT_DECAY = 0.05
 LABEL_SMOOTHING = 0.1
 EARLY_STOP_PATIENCE = 6
-NUM_WORKERS = 4   # parallel image loading -- matters more now with 15k images
+NUM_WORKERS = 4
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else
                        "mps" if torch.backends.mps.is_available() else "cpu")
 
@@ -36,26 +37,23 @@ train_transform = T.Compose([
 ])
 
 
-def lr_lambda(epoch, warmup_epochs, total_epochs):
-    import math
-    if epoch < warmup_epochs:
-        return (epoch + 1) / warmup_epochs
-    progress = (epoch - warmup_epochs) / max(1, (total_epochs - warmup_epochs))
-    return 0.5 * (1.0 + math.cos(math.pi * progress))
+def get_step_lr_lambda(current_step, warmup_steps, total_steps):
+    if current_step < warmup_steps:
+        return float(current_step + 1) / float(max(1, warmup_steps))
+    progress = float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+    return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
 
 
 def build_param_groups(model, weight_decay):
     """Split params into decay / no-decay groups, matching the Swin paper's
     own training recipe: exclude all 1-D params (LayerNorm weight+bias,
-    linear biases) and the relative-position-bias table (2-D, so the ndim
-    check alone would miss it) from weight decay. Decaying these distorts
-    normalization scale and the learned window position bias without
-    helping generalization -- see FINDINGS.md."""
+    linear biases), the relative-position-bias table, and token embeddings
+    from weight decay."""
     decay, no_decay = [], []
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
-        if param.ndim <= 1 or "relative_position_bias_table" in name:
+        if param.ndim <= 1 or "relative_position_bias_table" in name or "embed" in name:
             no_decay.append(param)
         else:
             decay.append(param)
@@ -77,19 +75,35 @@ def main():
 
     print(f"Train samples: {len(train_ds)}  Valid samples: {len(valid_ds)}")
 
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS)
-    valid_loader = DataLoader(valid_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS)
+    train_loader = DataLoader(
+        train_ds, batch_size=BATCH_SIZE, shuffle=True,
+        num_workers=NUM_WORKERS, persistent_workers=(NUM_WORKERS > 0),
+        pin_memory=(DEVICE.type == "cuda")
+    )
+    valid_loader = DataLoader(
+        valid_ds, batch_size=BATCH_SIZE, shuffle=False,
+        num_workers=NUM_WORKERS, persistent_workers=(NUM_WORKERS > 0),
+        pin_memory=(DEVICE.type == "cuda")
+    )
 
     model = SwinCaptioningModel(vocab_size=len(vocab), max_len=MAX_LEN).to(DEVICE)
 
     optimizer = torch.optim.AdamW(build_param_groups(model, WEIGHT_DECAY), lr=PEAK_LR)
+
+    total_steps = EPOCHS * len(train_loader)
+    warmup_steps = WARMUP_EPOCHS * len(train_loader)
     scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, lr_lambda=lambda ep: lr_lambda(ep, WARMUP_EPOCHS, EPOCHS)
+        optimizer, lr_lambda=lambda step: get_step_lr_lambda(step, warmup_steps, total_steps)
     )
+
     criterion = torch.nn.CrossEntropyLoss(ignore_index=vocab.pad_id, label_smoothing=LABEL_SMOOTHING)
+
+    use_amp = (DEVICE.type in ("cuda", "mps"))
+    amp_dtype = torch.float16 if DEVICE.type == "cuda" else torch.float32
 
     best_val_loss = float("inf")
     epochs_without_improvement = 0
+    current_step = 0
 
     for epoch in range(1, EPOCHS + 1):
         model.train()
@@ -98,20 +112,28 @@ def main():
         for images, captions in train_loader:
             images, captions = images.to(DEVICE), captions.to(DEVICE)
 
-            logits = model(images, captions)
-            targets = captions[:, 1:]
-
-            loss = criterion(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
+            if use_amp and DEVICE.type == "cuda":
+                with torch.autocast(device_type="cuda", dtype=amp_dtype):
+                    logits = model(images, captions)
+                    targets = captions[:, 1:]
+                    loss = criterion(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
+            else:
+                logits = model(images, captions)
+                targets = captions[:, 1:]
+                loss = criterion(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
 
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
+            scheduler.step()
 
+            current_step += 1
             total_loss += loss.item()
             num_batches += 1
-            if num_batches % 100 == 0:
-                print(f"  batch {num_batches}/{len(train_loader)}  running_loss={total_loss/num_batches:.4f}")
+            if num_batches % 200 == 0:
+                running_lr = optimizer.param_groups[0]["lr"]
+                print(f"  batch {num_batches}/{len(train_loader)}  running_loss={total_loss/num_batches:.4f}  lr={running_lr:.2e}")
 
         avg_train_loss = total_loss / len(train_loader)
 
@@ -131,13 +153,14 @@ def main():
         marker = "  <-- best so far" if improved else ""
         print(f"Epoch {epoch}/{EPOCHS}  train_loss={avg_train_loss:.4f}  "
               f"val_loss={avg_val_loss:.4f}  lr={current_lr:.2e}{marker}")
-        scheduler.step()
 
         if improved:
             best_val_loss = avg_val_loss
             epochs_without_improvement = 0
             torch.save({
                 "model_state": model.state_dict(),
+                "optimizer_state": optimizer.state_dict(),
+                "scheduler_state": scheduler.state_dict(),
                 "vocab_itos": vocab.itos,
                 "epoch": epoch,
                 "val_loss": best_val_loss,
@@ -151,6 +174,8 @@ def main():
 
     torch.save({
         "model_state": model.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+        "scheduler_state": scheduler.state_dict(),
         "vocab_itos": vocab.itos,
         "epoch": epoch,
     }, os.path.join(ROOT, "swin_caption_last.pt"))

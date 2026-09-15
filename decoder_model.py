@@ -72,9 +72,10 @@ class DecoderLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, memory, tgt_mask=None):
-        x = self.norm1(x + self.dropout(self.self_attn(x, x, x, tgt_mask)))
-        x = self.norm2(x + self.dropout(self.cross_attn(x, memory, memory)))
-        x = self.norm3(x + self.dropout(self.ff(x)))
+        # Pre-LayerNorm architecture for stable gradient flow
+        x = x + self.dropout(self.self_attn(self.norm1(x), self.norm1(x), self.norm1(x), tgt_mask))
+        x = x + self.dropout(self.cross_attn(self.norm2(x), memory, memory))
+        x = x + self.dropout(self.ff(self.norm3(x)))
         return x
 
 
@@ -85,12 +86,16 @@ class CaptionDecoder(nn.Module):
     def __init__(self, vocab_size, d_model=768, num_heads=8, ff_dim=2048,
                  num_layers=6, max_len=40, dropout=0.1):
         super().__init__()
+        self.d_model = d_model
         self.embed = nn.Embedding(vocab_size, d_model)
         self.pos_enc = PositionalEncoding(d_model, max_len)
         self.layers = nn.ModuleList([
             DecoderLayer(d_model, num_heads, ff_dim, dropout) for _ in range(num_layers)
         ])
+        self.norm_out = nn.LayerNorm(d_model)
         self.fc_out = nn.Linear(d_model, vocab_size)
+        # Weight tying (Press & Wolf, 2017)
+        self.fc_out.weight = self.embed.weight
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, tgt, memory):
@@ -99,7 +104,10 @@ class CaptionDecoder(nn.Module):
         B, T = tgt.shape
         causal_mask = torch.tril(torch.ones(T, T, device=tgt.device)).view(1, 1, T, T)
 
-        x = self.dropout(self.pos_enc(self.embed(tgt)))
+        # Scale token embedding by sqrt(d_model) so position encodings don't overwhelm token identity
+        x = self.embed(tgt) * math.sqrt(self.d_model)
+        x = self.dropout(self.pos_enc(x))
         for layer in self.layers:
             x = layer(x, memory, causal_mask)
+        x = self.norm_out(x)
         return self.fc_out(x)   # (B, T, vocab_size) logits

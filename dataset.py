@@ -58,7 +58,11 @@ class ROCODataset(Dataset):
         img_path = self._resolve_image_path(row[IMAGE_COL])
         caption = row[CAPTION_COL]
 
-        image = Image.open(img_path).convert("RGB")
+        try:
+            image = Image.open(img_path).convert("RGB")
+        except Exception:
+            image = Image.new("RGB", (224, 224), color=0)
+
         image = self.transform(image)
 
         caption_ids = torch.tensor(

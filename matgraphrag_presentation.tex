@@ -1,0 +1,618 @@
+\documentclass{beamer}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{colortbl}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usetheme{Madrid}
+\usecolortheme{default}
+
+%------------------------------------------------------------
+% Title Page Information
+%------------------------------------------------------------
+
+\title[MatGraphRAG]
+{MatGraphRAG: An Explainable Graph Based Retrieval Augmented Reasoning System for Intelligent Materials Discovery}
+
+\subtitle{First Review --- Phase 1: Knowledge Graph Construction}
+
+\author[Group 14]
+{
+Group -- 14\\
+Dhakshin -- CB.SC.U4AIE24313\\
+Naga Shiva -- CB.SC.U4AIE24315\\
+Rajashree T -- CB.SC.U4AIE24346\\
+Sharvesh -- CB.SC.U4AIE24355
+}
+
+\institute[Amrita Vishwa Vidyapeetham]
+{
+Amrita School of Artificial Intelligence, Amrita Vishwa Vidyapeetham, Coimbatore
+}
+
+\date{\today}
+
+% Place your logo file next to this .tex and it will be picked up automatically
+\IfFileExists{your-college-logo.png}{\logo{\includegraphics[height=1cm]{your-college-logo.png}}}{}
+
+\begin{document}
+
+% Title Page
+\begin{frame}
+  \titlepage
+\end{frame}
+
+%------------------------------------------------------------
+% Sections
+%------------------------------------------------------------
+\section{Introduction}
+\begin{frame}{Introduction}
+    \begin{itemize}
+        \item \textbf{Materials} form the foundation of modern technologies --- batteries, semiconductors, solar cells and electronic devices.
+        \item Their \textbf{composition and crystal structure} determine the properties that govern performance.
+        \item Finding materials with suitable properties is therefore crucial for designing real-world technologies.
+        \item The search space is enormous --- the Materials Project indexes \textbf{154,377} inorganic materials.
+        \item Materials, properties, structures and applications are deeply \textbf{interrelated}, yet current tools store them as isolated rows in a table.
+    \end{itemize}
+\end{frame}
+
+\section{Problem Statement}
+\begin{frame}{Problem Statement}
+    \begin{itemize}
+        \item Existing material search tools return \textbf{raw data} or \textbf{text-similarity matches}.
+        \item They do not reason about the real relationships between \textbf{materials}, \textbf{properties}, and \textbf{applications}.
+        \item Recommendations, when produced, are \textbf{not traceable} to any underlying evidence.
+        \item \textbf{Consequences:}
+        \begin{itemize}
+            \item Researchers must manually cross-reference multiple databases.
+            \item LLM-based answers risk hallucinating unsupported material claims.
+            \item No audit trail from a recommendation back to the source record.
+        \end{itemize}
+        \item \textbf{This project} builds a materials knowledge graph and a GraphRAG-based retrieval system that answers natural-language queries with \textbf{explainable, evidence-traceable} recommendations.
+    \end{itemize}
+\end{frame}
+
+\section{Objectives}
+\begin{frame}{Objectives}
+    \begin{itemize}
+        \item \textbf{Build (Phase 1):} construct a Materials Knowledge Graph from real Materials Project data using deterministic, rule-based classification --- fully auditable, zero LLM calls.
+        \item \textbf{Retrieve (Phase 2):} implement GraphRAG relationship-aware retrieval --- parse a natural-language question into structured constraints and traverse the graph.
+        \item \textbf{Explain (Phase 2):} generate recommendations grounded only in retrieved graph evidence --- every claim traceable to a specific edge or record.
+        \item \textbf{Encode (Phase 3):} integrate CGCNN crystal-structure embeddings for structure-aware retrieval and elemental substitutability.
+        \item \textbf{Scale:} migrate to Neo4j and expose the system through a backend API and visualization dashboard.
+    \end{itemize}
+\end{frame}
+
+\section{Literature Survey}
+\begin{frame}{Literature Review}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.25}
+
+\begin{tabular}{|c|c|p{2.8cm}|p{2.5cm}|p{2.4cm}|p{2.2cm}|}
+\hline
+\rowcolor{blue!70}
+\textcolor{white}{\textbf{\#}} &
+\textcolor{white}{\textbf{Year}} &
+\textcolor{white}{\textbf{Title}} &
+\textcolor{white}{\textbf{Technique}} &
+\textcolor{white}{\textbf{Inference}} &
+\textcolor{white}{\textbf{Limitations}} \\
+\hline
+
+\rowcolor{blue!8}
+1 & 2024 &
+LLaMP: Large Language Model Made Powerful for High Fidelity Materials Knowledge Retrieval &
+Multi agent LLM system querying trusted scientific databases &
+Retrieves materials knowledge and generates grounded responses &
+Document retrieval only; no graph based reasoning \\
+\hline
+
+2 & 2024 &
+HoneyComb: A Flexible LLM Based Agent System for Materials Science &
+Extensible LLM agent framework integrating scientific tools &
+Flexible tool-augmented materials research assistant &
+No explicit knowledge graph; no relationship aware retrieval \\
+\hline
+
+\rowcolor{blue!8}
+3 & 2024 &
+LLaMat: Foundational Large Language Models for Materials Research &
+Materials specific foundation model trained on literature &
+Strong domain specific language understanding &
+Knowledge is static; no structured graph reasoning \\
+\hline
+
+4 & 2024 &
+From Local to Global: A Graph RAG Approach to Query Focused Summarization &
+Entity extraction, graph construction, multi hop retrieval &
+Graph structure improves multi hop reasoning over text &
+Generic framework; not designed for materials science \\
+\hline
+
+\end{tabular}
+\end{frame}
+
+\begin{frame}{Literature Review (Cont.)}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.25}
+
+\begin{tabular}{|c|c|p{2.8cm}|p{2.5cm}|p{2.4cm}|p{2.2cm}|}
+\hline
+\rowcolor{blue!70}
+\textcolor{white}{\textbf{\#}} &
+\textcolor{white}{\textbf{Year}} &
+\textcolor{white}{\textbf{Title}} &
+\textcolor{white}{\textbf{Technique}} &
+\textcolor{white}{\textbf{Inference}} &
+\textcolor{white}{\textbf{Limitations}} \\
+\hline
+
+\rowcolor{blue!8}
+5 & 2018 &
+Crystal Graph Convolutional Neural Networks (CGCNN) &
+Atoms as nodes, bonds as edges; graph convolution + pooling &
+Accurate property prediction from crystal structure &
+Prediction only; no retrieval or reasoning \\
+\hline
+
+6 & 2021 &
+ALIGNN: Atomistic Line Graph Neural Network &
+Line graph encoding of bond angles &
+Improved property prediction over CGCNN &
+No integration with knowledge graphs or RAG \\
+\hline
+
+\rowcolor{blue!8}
+7 & 2013 &
+The Materials Project: A materials genome approach &
+Open DFT computed database, 154,377 materials &
+Large-scale structured property data freely accessible &
+Raw database; no reasoning or recommendation layer \\
+\hline
+
+\rowcolor{blue!25}
+\multicolumn{2}{|c|}{\textbf{Ours}} &
+\textbf{MatGraphRAG} &
+\textbf{Materials KG + GraphRAG retrieval + CGCNN embeddings} &
+\textbf{Explainable, evidence-traceable recommendation} &
+--- \\
+\hline
+
+\end{tabular}
+
+\vspace{0.2cm}
+
+\begin{block}{Research Gap}
+No prior system combines a \textbf{materials knowledge graph}, \textbf{relationship-aware GraphRAG retrieval}, and \textbf{structure-aware CGCNN encoding} into a single explainable discovery pipeline.
+\end{block}
+
+\end{frame}
+
+\section{Research Gap and Novelty}
+\begin{frame}{Research Gap and Novelty}
+    \textbf{Research Gap:}
+    \begin{itemize}
+        \item \textbf{Material databases} make data available, but only as isolated records.
+        \item \textbf{Traditional RAG} retrieves by text similarity, not by real relationships.
+        \item \textbf{Knowledge graphs} encode relationships but are not connected to LLM reasoning.
+        \item \textbf{CGCNN / ALIGNN} use crystal structure, but only for property prediction.
+    \end{itemize}
+
+    \vspace{0.25cm}
+    \textbf{Novelty of This Work:}
+    \begin{itemize}
+        \item First system integrating a materials knowledge graph + GraphRAG retrieval + CGCNN structural encoding.
+        \item \textbf{Deterministic construction} --- rule-based, zero LLM calls, so every node and edge is auditable and reproducible.
+        \item \textbf{Explainability built into the edge itself} --- each \texttt{suitable\_for} edge stores the exact rule text that fired.
+        \item \textbf{Six grouping axes} (element, chemical system, symmetry, property bucket, oxidation state, formula pattern) so materials relate even with zero shared elements.
+    \end{itemize}
+\end{frame}
+
+\section{Dataset}
+\begin{frame}{Dataset --- Materials Project}
+\textbf{Source:} Materials Project REST API --- computed properties plus human-readable structure descriptions. MP indexes \textbf{154,377} materials in total.
+
+\vspace{0.2cm}
+\textbf{Why not the full catalog?}
+    \begin{itemize}
+        \item Material--material similarity is \textbf{quadratic} --- 154,377 materials means $\sim$11.9 billion pairs.
+        \item An exhaustive pull produces a \textbf{sparse, disconnected} graph; Phase 1's goal is a densely interconnected one.
+    \end{itemize}
+
+\vspace{0.2cm}
+\textbf{Sampling --- 8 chemistry-driven clusters:} battery cathodes (oxide, phosphate), semiconductors (III--V, II--VI, group IV), binary oxides, perovskite oxides, magnetic spinel oxides. Stability cutoff $E_{\text{hull}} \leq 0.08$ eV/atom; radioactive and synthetic elements excluded.
+
+\vspace{0.2cm}
+\textbf{Result:} 8 clusters $\rightarrow$ $\sim$2,000 raw candidates $\rightarrow$ \textbf{794 unique materials} after deduplication by formula.
+
+\vspace{0.1cm}
+\textbf{Properties:} band gap, formation energy, energy above hull, density, magnetization and symmetry at 100\% coverage; oxidation states 93\%; dielectric 20\%; elastic 18\%.
+\end{frame}
+
+\section{Methodology}
+\begin{frame}{Methodology --- Overview}
+\textbf{Proposed System Architecture:}
+    \begin{itemize}
+        \item \textbf{Materials Project API} $\rightarrow$ material properties.
+        \item \textbf{Knowledge graph construction} --- entities and relationships.
+        \item \textbf{GraphRAG retrieval} --- relationship-aware multi-hop traversal.
+        \item \textbf{LLM reasoning} --- grounded generation over retrieved evidence.
+        \item \textbf{Explainable material recommendation} --- final output.
+    \end{itemize}
+
+    \vspace{0.3cm}
+    \textbf{Three implementation phases:}
+    \begin{itemize}
+        \item \textbf{Phase 1} --- Knowledge Graph Construction \hfill \textcolor{blue}{\textbf{[COMPLETE]}}
+        \item \textbf{Phase 2} --- GraphRAG Retrieval and Recommendation \hfill \textcolor{gray}{[Not started]}
+        \item \textbf{Phase 3} --- Crystal Structure Encoding \hfill \textcolor{gray}{[Not started]}
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Methodology --- System Architecture}
+\centering
+\includegraphics[width=0.82\textwidth]{architecture_simple.drawio.png}
+
+\vspace{0.25cm}
+\footnotesize
+\texttt{materials.yaml} configures the 8-cluster fetch $\rightarrow$ 794 cached records $\rightarrow$ deterministic enrichment (no LLM) $\rightarrow$ Cognee writes the graph store $\rightarrow$ structural verification. \textbf{Explainability is structural, not bolted on:} every \texttt{suitable\_for} edge stores the exact rule text that qualified it, directly in the graph store --- the anchor point for Phase 2 and Phase 3.
+\end{frame}
+
+\begin{frame}{Methodology --- Phase 1 Construction Pipeline}
+    \begin{itemize}
+        \item \textbf{1. FETCH} (\texttt{mp\_client.py}) --- one query per cluster pattern, sorted by stability; deduplicate by formula; cache to \texttt{data/raw/} for reproducibility.
+        \item \textbf{2. ENRICH} (\texttt{enrich.py}) --- \textbf{no LLM}: classify band gap / stability / magnetic ordering into buckets, apply application-domain rules, compute \texttt{similar\_to} neighbours.
+        \item \textbf{3. WRITE} (\texttt{pipeline.py}) --- Cognee pipeline writes the graph store and vector store together, deduplicating on each node's identity key.
+        \item \textbf{4. VERIFY} (\texttt{verify.py}) --- node/edge counts and structural queries read directly from the graph store; renders an interactive visualization.
+    \end{itemize}
+    \vspace{0.15cm}
+    \textbf{Grouping mechanisms (all deterministic):}
+    \begin{itemize}\small
+        \item \textbf{Buckets:} band gap (metal / narrow / semiconductor / wide), stability (stable / metastable / unstable), magnetic ordering.
+        \item \textbf{Domain rules (12):} battery cathode, semiconductor device, photocatalyst, dielectric, magnetic material, photovoltaic absorber, piezoelectric, ferroelectric, thermoelectric, UV-transparent, hard structural, high-$k$ dielectric --- each rule's text stored on the edge.
+        \item \textbf{Symmetry screening:} piezoelectric and ferroelectric candidates are selected by the crystal's point group, not by a threshold.
+        \item \textbf{Categorical fields:} oxidation states and formula patterns group directly, no thresholds needed.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Methodology --- Graph Schema}
+\begin{columns}[T]
+\begin{column}{0.46\textwidth}
+\centering \textbf{Node types --- 1,511}\\[0.15cm]
+\scriptsize
+\begin{tabular}{lr}
+\toprule
+\textbf{Type} & \textbf{Count} \\
+\midrule
+\texttt{Material} & 794 \\
+\texttt{FormulaPattern} & 261 \\
+\texttt{ChemicalSystem} & 143 \\
+\texttt{OxidationState} & 131 \\
+\texttt{SpaceGroup} & 106 \\
+\texttt{Element} & 46 \\
+\texttt{ApplicationDomain} & 12 \\
+\texttt{PropertyClass} & 11 \\
+\texttt{CrystalSystem} & 7 \\
+\bottomrule
+\end{tabular}
+\end{column}
+
+\begin{column}{0.52\textwidth}
+\centering \textbf{Relationship types}\\[0.15cm]
+\scriptsize
+\begin{tabular}{ll}
+\toprule
+\textbf{Edge} & \textbf{Properties} \\
+\midrule
+\texttt{contains} & \texttt{weight}: atomic fraction \\
+\texttt{has\_space\_group} & --- \\
+\texttt{member\_of} & --- \\
+\texttt{classified\_as} & --- \\
+\texttt{suitable\_for} & \texttt{rule}: fired text \\
+\texttt{similar\_to} & \texttt{weight}: cosine \\
+\texttt{crystal\_system} & --- \\
+\texttt{has\_oxidation\_state} & --- \\
+\texttt{has\_formula\_pattern} & --- \\
+\bottomrule
+\end{tabular}
+\end{column}
+\end{columns}
+
+\vspace{0.25cm}
+\footnotesize
+\textbf{Design principle:} continuous values stay as \textbf{attributes}; anything used for \textbf{grouping} becomes a \textbf{node}; derived material--material relations become \textbf{weighted edges}. \texttt{similar\_to} uses top-5 nearest neighbours by cosine similarity over a 10-dimensional z-scored property vector; \texttt{contains} is weighted by atomic fraction, so oxygen (4/7 of LiFePO$_4$) is distinguishable from lithium (1/7).
+\end{frame}
+
+\begin{frame}{Methodology --- Phases 2 and 3 \textcolor{gray}{(Planned)}}
+\textbf{Phase 2 --- GraphRAG Retrieval:}
+    \begin{itemize}
+        \item Natural-language query $\rightarrow$ structured constraints.
+        \item Relationship-aware multi-hop traversal combined with vector search.
+        \item Retrieved candidates compared using their material properties.
+        \item LLM generates a recommendation from retrieved evidence only --- the \texttt{suitable\_for.rule} edge property already carries this evidence.
+    \end{itemize}
+
+\vspace{0.3cm}
+\textbf{Phase 3 --- Structure-Aware Retrieval:}
+    \begin{itemize}
+        \item Convert each cached crystal structure into a graph (atoms as nodes, bonds as edges).
+        \item CGCNN encodes it into a fixed-length embedding, stored on the \texttt{Material} node and indexed for similarity search.
+        \item Replaces property-vector \texttt{similar\_to} edges with genuine structural similarity, and enables element substitution.
+        \item Crystal structures for all 794 materials are \textbf{already cached} for this phase.
+    \end{itemize}
+\end{frame}
+
+\section{Implementation}
+\begin{frame}{Implementation --- Tech Stack}
+\begin{table}[h]
+    \centering
+    \small
+    \begin{tabular}{ll}
+        \toprule
+        \textbf{Layer} & \textbf{Technology} \\
+        \midrule
+        Data source & Materials Project REST API \\
+        Graph / pipeline framework & Cognee (low-level \texttt{DataPoint} pipeline) \\
+        Graph store & Kuzu (embedded; Neo4j-ready via config swap) \\
+        Vector store & LanceDB (embedded) \\
+        Metadata store & SQLite \\
+        Embeddings & \texttt{fastembed} --- \texttt{BAAI/bge-small-en-v1.5} (local) \\
+        Element property data & pymatgen (full 103-element periodic table) \\
+        Language / tooling & Python 3.11--3.14, \texttt{uv} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+\vspace{0.15cm}
+\footnotesize
+\textbf{No LLM API key is required to build the graph} --- embeddings run on a local model. An LLM key becomes necessary only for Phase 2's natural-language retrieval layer.
+\end{frame}
+
+\section{Results}
+\begin{frame}{Results --- Verified Graph Statistics}
+\begin{columns}[T]
+\begin{column}{0.46\textwidth}
+\centering \textbf{Edges --- 15,112 total}\\[0.15cm]
+\scriptsize
+\begin{tabular}{lr}
+\toprule
+\textbf{Relationship} & \textbf{Count} \\
+\midrule
+\texttt{similar\_to} & 3,964 \\
+\texttt{has\_oxidation\_state} & 2,319 \\
+\texttt{contains} & 2,269 \\
+\texttt{classified\_as} & 2,135 \\
+\texttt{suitable\_for} & 1,937 \\
+\texttt{has\_formula\_pattern} & 794 \\
+\texttt{has\_space\_group} & 794 \\
+\texttt{member\_of} & 794 \\
+\texttt{crystal\_system} & 106 \\
+\bottomrule
+\end{tabular}
+\end{column}
+
+\begin{column}{0.52\textwidth}
+\centering \textbf{Application domains --- 12}\\[0.15cm]
+\scriptsize
+\begin{tabular}{lr}
+\toprule
+\textbf{Domain} & \textbf{Materials} \\
+\midrule
+\texttt{semiconductor\_device} & 474 \\
+\texttt{magnetic\_material} & 328 \\
+\texttt{photocatalyst} & 249 \\
+\texttt{battery\_cathode} & 237 \\
+\texttt{dielectric} & 218 \\
+\texttt{piezoelectric} & 130 \\
+\texttt{thermoelectric} & 100 \\
+\texttt{ferroelectric} & 94 \\
+\texttt{uv\_transparent} & 33 \\
+\texttt{high\_k\_dielectric} & 33 \\
+\texttt{photovoltaic\_absorber} & 22 \\
+\texttt{hard\_structural} & 19 \\
+\midrule
+\textbf{Total} & \textbf{1,937} \\
+\bottomrule
+\end{tabular}
+\end{column}
+\end{columns}
+
+\vspace{0.2cm}
+\footnotesize
+Counts read directly out of the graph store on every build --- not estimated. Domain totals match the \texttt{suitable\_for} edge count exactly; a material can belong to more than one domain, and each edge stores the rule that qualified it. \textbf{Every figure here was reproduced from a clean checkout}, fetch through verification.
+\end{frame}
+
+\begin{frame}{Results --- Symmetry-Based Screening}
+Most domain rules are thresholds on computed values. Two are not: \textbf{piezoelectricity and ferroelectricity are permitted or forbidden by the crystal's point group as a matter of physical law}, independent of composition or any DFT number.
+
+\vspace{0.2cm}
+\begin{itemize}\small
+    \item A crystal with an \textbf{inversion centre cannot be piezoelectric} --- the inverted structure is indistinguishable from the original, so no polarisation can develop under strain.
+    \item \textbf{Ferroelectricity additionally requires a polar point group} --- a unique axis for the spontaneous polarisation to point along.
+\end{itemize}
+
+\vspace{0.2cm}
+\texttt{config/space\_groups.json} classifies all \textbf{230 space groups}. Counts match the crystallographic literature exactly:
+
+\vspace{0.1cm}
+\centering
+\small
+\begin{tabular}{lrr}
+\toprule
+& \textbf{Generated} & \textbf{Literature} \\
+\midrule
+Centrosymmetric space groups & 92 & 92 \\
+Polar space groups & 68 & 68 \\
+Distinct point groups & 32 & 32 \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.25cm}
+\raggedright
+\footnotesize
+Includes the \textbf{432 exception} --- the one non-centrosymmetric class whose symmetry still forces every piezoelectric tensor component to vanish (20 of 21, not 21 of 21).
+
+\textbf{Validation:} BaTiO$_3$ is returned as both \texttt{ferroelectric} and \texttt{piezoelectric}; AlN, BN and GaN as \texttt{piezoelectric}; Al$_2$O$_3$ as \texttt{uv\_transparent} and \texttt{hard\_structural} --- all correct. These rules screen for what symmetry \textit{permits}: a match is a candidate, never a confirmed device.
+\end{frame}
+
+\begin{frame}{Results --- Graph Connectivity and Traversals}
+\textbf{How materials interconnect:}
+    \begin{itemize}\small
+        \item \textbf{Elements act as hubs} --- Oxygen is a single node, but \textbf{756 of 794} materials (95\%) point to it.
+        \item \textbf{Oxidation states} --- \texttt{O2-} alone connects 695 materials (87\%); \texttt{Li+} connects 227.
+        \item \textbf{Formula patterns} --- \texttt{BaTiO3} and \texttt{CaHfO3} share \textit{no} elements but are both \texttt{ABC3} (44 materials).
+        \item \textbf{Symmetry} --- 106 space groups collapse onto 7 crystal systems.
+    \end{itemize}
+
+\vspace{0.2cm}
+\textbf{Example traversals (real \texttt{verify.py} output):}
+    \begin{itemize}\small
+        \item ``Which Li-containing materials are stable?'' $\rightarrow$ \textbf{80} materials.
+        \item ``Which materials are wide-band-gap?'' $\rightarrow$ \textbf{143}, led by \texttt{Al2O3} (5.87 eV), \texttt{SiO2} (5.68 eV).
+        \item ``Which materials contain Ti4+?'' $\rightarrow$ \textbf{107}, one hop via \texttt{has\_oxidation\_state}.
+        \item ``What connects LiFePO4 and Fe2O3?'' $\rightarrow$ shared \texttt{Fe} and \texttt{O} element nodes.
+    \end{itemize}
+
+\vspace{0.15cm}
+\textbf{Verified:} every \texttt{Material} has at least one \texttt{contains} edge --- no isolated materials; 794 nodes match the fetch manifest exactly.
+\end{frame}
+
+\begin{frame}{Results --- Work Completed and Remaining}
+\small
+\begin{columns}[T]
+
+\begin{column}{0.32\textwidth}
+\textbf{Phase 1} \\
+\footnotesize Data + Knowledge Graph \\
+\textcolor{blue}{\textbf{COMPLETE}}
+\rule{\linewidth}{0.4pt}
+\begin{itemize}\footnotesize
+\item[\checkmark] Materials Project API
+\item[\checkmark] Cluster fetch \& caching
+\item[\checkmark] Rule-based enrichment
+\item[\checkmark] Knowledge graph (1,511 nodes)
+\item[\checkmark] 12 application domains
+\item[\checkmark] Symmetry-based screening
+\item[\checkmark] Structural verification
+\item[\checkmark] 132 unit tests
+\item[\checkmark] Reproduced end-to-end
+\item[\checkmark] Graph visualization
+\end{itemize}
+\end{column}
+
+\begin{column}{0.32\textwidth}
+\textbf{Phase 2} \\
+\footnotesize GraphRAG Retrieval + Explanation \\
+\textcolor{gray}{\textbf{NOT STARTED}}
+\rule{\linewidth}{0.4pt}
+\begin{itemize}\footnotesize
+\item[$\circ$] Query parsing
+\item[$\circ$] Graph traversal retrieval
+\item[$\circ$] Evidence-grounded explanation
+\item[$\circ$] Backend API
+\item[$\circ$] Retrieval evaluation
+\item[$\circ$] Neo4j migration
+\end{itemize}
+\end{column}
+
+\begin{column}{0.32\textwidth}
+\textbf{Phase 3} \\
+\footnotesize Structure-Aware Retrieval \\
+\textcolor{gray}{\textbf{NOT STARTED}}
+\rule{\linewidth}{0.4pt}
+\begin{itemize}\footnotesize
+\item[$\circ$] CGCNN embeddings
+\item[$\circ$] ANN similarity index
+\item[$\circ$] Element substitution
+\item[$\circ$] Frontend interface
+\end{itemize}
+\end{column}
+
+\end{columns}
+\end{frame}
+
+\begin{frame}{Results --- Comparison with Existing Literature}
+
+\begin{itemize}
+    \item Comparison table --- this system vs.\ recent related works:
+\end{itemize}
+
+\vspace{0.3cm}
+
+\begin{table}[h!]
+\centering
+\renewcommand{\arraystretch}{1.4}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llllll}
+\toprule
+\textbf{System} & \textbf{Knowledge Graph} & \textbf{Relationship Retrieval} & \textbf{Structure Aware} & \textbf{Explainable} & \textbf{Materials Specific} \\
+\midrule
+LLaMP (2024)              & No  & No  & No  & Partial & Yes \\
+HoneyComb (2024)          & No  & No  & No  & No      & Yes \\
+LLaMat (2024)             & No  & No  & No  & No      & Yes \\
+Microsoft GraphRAG (2024) & Yes & Yes & No  & Partial & No  \\
+CGCNN / ALIGNN            & No  & No  & Yes & No      & Yes \\
+\midrule
+\textbf{MatGraphRAG} & \textbf{Yes (built)} & \textbf{Planned} & \textbf{Planned} & \textbf{Yes (rule-traced)} & \textbf{Yes} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\end{frame}
+
+\section{Conclusion}
+\begin{frame}{Conclusion and Future Work}
+    \textbf{Conclusion:}
+    \begin{itemize}
+        \item \textbf{Phase 1 is complete} --- it established the data and knowledge-graph foundation for MatGraphRAG.
+        \item Built a graph of \textbf{1,511 nodes} (794 materials) and \textbf{15,112 edges} from real Materials Project data.
+        \item Construction is \textbf{fully deterministic} --- rules applied to cached API data, with \textbf{zero LLM calls}.
+        \item \textbf{Explainability is built in at the data layer} --- each domain edge stores the exact rule text that fired, and all \textbf{1,937} are verified to carry it on every build.
+        \item \textbf{12 application domains}, two of which screen on crystal symmetry rather than a fitted threshold.
+        \item \textbf{Reproducible from a clean checkout} --- fetch, build and verification re-run end to end, with 132 unit tests over the classification rules.
+    \end{itemize}
+
+    \vspace{0.25cm}
+    \textbf{Future Work:}
+    \begin{itemize}
+        \item \textbf{Phase 2:} query parsing, graph + vector retrieval, LLM-generated evidence-backed recommendations, and a retrieval evaluation harness.
+        \item \textbf{Phase 3:} CGCNN structural embeddings with an approximate-nearest-neighbour index, replacing property-vector similarity.
+        \item \textbf{Neo4j migration} --- a config-only change, with no changes to schema or pipeline code.
+        \item Scale beyond 794 materials and build the frontend dashboard.
+    \end{itemize}
+\end{frame}
+
+\section{References}
+\begin{frame}{References}
+
+\begin{thebibliography}{99}
+\footnotesize
+
+\bibitem{1} Y. Chiang, et al., ``LLaMP: Large Language Model Made Powerful for High-Fidelity Materials Knowledge Retrieval and Distillation,'' 2024.
+
+\bibitem{2} H. Zhang, et al., ``HoneyComb: A Flexible LLM-Based Agent System for Materials Science,'' 2024.
+
+\bibitem{3} V. Mishra, et al., ``LLaMat: Foundational Large Language Models for Materials Research,'' 2024.
+
+\bibitem{4} D. Edge, et al., ``From Local to Global: A Graph RAG Approach to Query-Focused Summarization,'' Microsoft Research, 2024.
+
+\bibitem{5} T. Xie and J. C. Grossman, ``Crystal Graph Convolutional Neural Networks for an Accurate and Interpretable Prediction of Material Properties,'' Phys. Rev. Lett., vol. 120, 145301, 2018.
+
+\bibitem{6} K. Choudhary and B. DeCost, ``Atomistic Line Graph Neural Network for improved materials property predictions,'' npj Comput. Mater., vol. 7, 185, 2021.
+
+\bibitem{7} A. Jain, et al., ``The Materials Project: A materials genome approach to accelerating materials innovation,'' APL Materials, vol. 1, no. 1, 011002, 2013.
+
+\bibitem{8} S. P. Ong, et al., ``Python Materials Genomics (pymatgen),'' Comput. Mater. Sci., vol. 68, pp. 314--319, 2013.
+
+\bibitem{9} P. Lewis, et al., ``Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks,'' in NeurIPS, 2020.
+
+\bibitem{10} Topoteretes, ``Cognee: Memory and knowledge graph layer for AI applications,'' 2024.
+
+\end{thebibliography}
+
+\end{frame}
+
+\end{document}

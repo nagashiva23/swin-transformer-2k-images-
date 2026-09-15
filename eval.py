@@ -80,7 +80,7 @@ def main():
     ap.add_argument("--split", choices=["train", "valid", "test"], default="test")
     ap.add_argument("--n", type=int, default=200, help="number of samples to evaluate, 0 = all")
     ap.add_argument("--root", default="/Users/nagashiva/Downloads/rocov2")
-    ap.add_argument("--out", default=None, help="optional CSV path to dump generated vs reference captions")
+    ap.add_argument("--batch_size", type=int, default=32, help="batch size for evaluation generation")
     args = ap.parse_args()
 
     csv_name, img_subdir = SPLIT_PATHS[args.split]
@@ -94,7 +94,7 @@ def main():
     if len(vocab) < 5000:
         print(
             "  NOTE: a vocab this small strongly suggests this checkpoint was trained on the "
-            "2,000-sample config, not the current 15,000-sample train.py. See FINDINGS.md."
+            "2,000-sample config, not the full dataset train.py. See FINDINGS.md."
         )
 
     model = SwinCaptioningModel(vocab_size=len(vocab), max_len=MAX_LEN).to(DEVICE)
@@ -107,24 +107,41 @@ def main():
     print(f"Evaluating on {len(df)} samples from {csv_name}")
 
     refs, hyps, rows = [], [], []
+    batch_size = args.batch_size
+
     with torch.no_grad():
-        for i, row in df.iterrows():
-            img_path = resolve_image_path(images_dir, row["ID"])
-            if not os.path.exists(img_path):
+        for b_start in range(0, len(df), batch_size):
+            b_df = df.iloc[b_start : b_start + batch_size]
+            valid_rows = []
+            image_tensors = []
+            for i, row in b_df.iterrows():
+                img_path = resolve_image_path(images_dir, row["ID"])
+                if not os.path.exists(img_path):
+                    continue
+                try:
+                    img = Image.open(img_path).convert("RGB")
+                except Exception:
+                    img = Image.new("RGB", (224, 224), color=0)
+                image_tensors.append(transform(img))
+                valid_rows.append(row)
+
+            if not image_tensors:
                 continue
-            image = Image.open(img_path).convert("RGB")
-            image_t = transform(image).unsqueeze(0).to(DEVICE)
-            ids = model.generate(image_t, vocab, max_len=MAX_LEN, device=DEVICE)
-            gen_caption = vocab.decode(ids[0].tolist())
 
-            ref_tokens = Vocab.tokenize(str(row["Caption"]))
-            hyp_tokens = Vocab.tokenize(gen_caption)
-            refs.append(ref_tokens)
-            hyps.append(hyp_tokens)
-            rows.append((row["ID"], row["Caption"], gen_caption))
+            batch_imgs = torch.stack(image_tensors).to(DEVICE)
+            ids_batch = model.generate(batch_imgs, vocab, max_len=MAX_LEN, device=DEVICE)
 
-            if (i + 1) % 25 == 0:
-                print(f"  {i + 1}/{len(df)} captioned")
+            for row, ids in zip(valid_rows, ids_batch):
+                gen_caption = vocab.decode(ids.tolist())
+                ref_tokens = Vocab.tokenize(str(row["Caption"]))
+                hyp_tokens = Vocab.tokenize(gen_caption)
+                refs.append(ref_tokens)
+                hyps.append(hyp_tokens)
+                rows.append((row["ID"], row["Caption"], gen_caption))
+
+            done_cnt = min(b_start + batch_size, len(df))
+            if done_cnt % (batch_size * 4) == 0 or done_cnt == len(df):
+                print(f"  {done_cnt}/{len(df)} captioned")
 
     if not hyps:
         print("No images were found/captioned -- check --root and the split's image folder.")

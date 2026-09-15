@@ -11,8 +11,8 @@ from decoder_model import CaptionDecoder
 
 def _init_weights(module):
     # relative_position_bias_table already gets its own trunc_normal_ init
-    # in WindowAttention.__init__ and isn't a Linear/LayerNorm, so it's untouched here.
-    if isinstance(module, nn.Linear):
+    # in WindowAttention.__init__ and isn't a Linear/LayerNorm/Conv2d, so it's untouched here.
+    if isinstance(module, (nn.Linear, nn.Conv2d)):
         nn.init.trunc_normal_(module.weight, std=0.02)
         if module.bias is not None:
             nn.init.zeros_(module.bias)
@@ -46,20 +46,28 @@ class SwinCaptioningModel(nn.Module):
     @torch.no_grad()
     def generate(self, images, vocab, max_len=40, device="cpu"):
         self.eval()
-        memory = self.encoder(images.to(device))
+        images = images.to(device)
+        memory = self.encoder(images)
         B = images.size(0)
         ids = torch.full((B, 1), vocab.sos_id, dtype=torch.long, device=device)
+        finished = torch.zeros(B, dtype=torch.bool, device=device)
 
         for _ in range(max_len - 1):
             logits = self.decoder(ids, memory)
             step_logits = logits[:, -1, :].clone()
 
             prev_token = ids[:, -1]
-            step_logits.scatter_(1, prev_token.unsqueeze(1), float(-100.0))
+            for b in range(B):
+                if not finished[b]:
+                    p = prev_token[b].item()
+                    if p != vocab.eos_id and p != vocab.pad_id:
+                        step_logits[b, p] = float(-100.0)
 
             seq_len = ids.size(1)
             if seq_len >= 2:
-                for b in range(ids.size(0)):
+                for b in range(B):
+                    if finished[b]:
+                        continue
                     seq = ids[b].tolist()
                     seen_trigrams = set()
                     for i in range(len(seq) - 2):
@@ -70,7 +78,9 @@ class SwinCaptioningModel(nn.Module):
                         step_logits[b, banned_next] = float(-100.0)
 
             next_id = step_logits.argmax(-1, keepdim=True)
+            next_id = torch.where(finished.unsqueeze(1), torch.full_like(next_id, vocab.pad_id), next_id)
+            finished = finished | (next_id.squeeze(1) == vocab.eos_id)
             ids = torch.cat([ids, next_id], dim=1)
-            if (next_id == vocab.eos_id).all():
+            if finished.all():
                 break
         return ids

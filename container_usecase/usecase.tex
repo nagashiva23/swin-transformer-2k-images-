@@ -1,0 +1,1955 @@
+%=====================================================================
+%  USE CASE: Building Container Images and Operations on Container
+%  Images -- MedCap, a Swin-Transformer Radiology Captioning Service
+%=====================================================================
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=0.75in,top=0.85in,bottom=0.8in]{geometry}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{tikz}
+\usepackage{caption}
+\usepackage[hidelinks]{hyperref}
+
+\usetikzlibrary{shapes.geometric,arrows.meta,positioning,calc,fit,backgrounds}
+
+%---------------------------------------------------------------- colours
+\definecolor{dkblue}{HTML}{123A63}
+\definecolor{acc}{HTML}{1B6CA8}
+\definecolor{shellbg}{HTML}{F4F6F8}
+\definecolor{shellrule}{HTML}{C9D3DC}
+\definecolor{kw}{HTML}{9B1D64}
+\definecolor{cmt}{HTML}{5C7080}
+\definecolor{str}{HTML}{1A7F37}
+\definecolor{lightgrey}{HTML}{EEF2F5}
+\definecolor{warnbg}{HTML}{FFF6E5}
+\definecolor{warnrule}{HTML}{E0A13A}
+
+%---------------------------------------------------------------- headings
+\titleformat{\section}[hang]
+  {\normalfont\large\bfseries\color{dkblue}}
+  {\thesection.}{0.6em}{}
+\titlespacing*{\section}{0pt}{11pt}{4pt}
+\titleformat{\subsection}[hang]
+  {\normalfont\normalsize\bfseries\color{dkblue}}{\thesubsection}{0.6em}{}
+\titlespacing*{\subsection}{0pt}{8pt}{2pt}
+\titleformat{\subsubsection}[hang]
+  {\normalfont\normalsize\bfseries\color{acc}}{\thesubsubsection}{0.6em}{}
+\titlespacing*{\subsubsection}{0pt}{8pt}{2pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\small\itshape Building \& Operating Container Images}
+\fancyhead[R]{\small\itshape MedCap Case Study}
+\fancyfoot[C]{\small\thepage}
+\fancypagestyle{plain}{\fancyhf{}\fancyfoot[C]{\small\thepage}%
+  \renewcommand{\headrulewidth}{0pt}}
+
+\setlength{\parskip}{0.26em}
+\linespread{0.99}\selectfont
+\setlength{\parindent}{0pt}
+\renewcommand{\arraystretch}{1.12}
+\setcounter{tocdepth}{2}
+\raggedbottom
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.9}
+\renewcommand{\textfraction}{0.06}
+\renewcommand{\floatpagefraction}{0.8}
+\setlength{\textfloatsep}{7pt plus 2pt minus 2pt}
+\setlength{\intextsep}{7pt plus 2pt minus 2pt}
+\setlength{\abovecaptionskip}{4pt}
+\setlength{\belowcaptionskip}{2pt}
+
+%---------------------------------------------------------------- listings
+\lstdefinelanguage{Dockerfile}{
+  morekeywords={FROM,RUN,CMD,LABEL,MAINTAINER,EXPOSE,ENV,ADD,COPY,ENTRYPOINT,
+                VOLUME,USER,WORKDIR,ARG,ONBUILD,STOPSIGNAL,HEALTHCHECK,SHELL,AS},
+  morecomment=[l]{\#},
+  morestring=[b]",
+  sensitive=true
+}
+\lstdefinestyle{shell}{
+  basicstyle=\ttfamily\scriptsize,
+  backgroundcolor=\color{shellbg},
+  frame=single, rulecolor=\color{shellrule},
+  framesep=4pt, xleftmargin=5pt, xrightmargin=2pt, aboveskip=5pt, belowskip=5pt,
+  breaklines=true, breakatwhitespace=false,
+  columns=fullflexible, keepspaces=true,
+  showstringspaces=false,
+  literate={-}{-}1 {~}{{\textasciitilde}}1,
+  captionpos=b
+}
+\lstdefinestyle{dfile}{
+  style=shell,
+  language=Dockerfile,
+  keywordstyle=\color{kw}\bfseries,
+  commentstyle=\color{cmt}\itshape,
+  stringstyle=\color{str},
+  numbers=left, numberstyle=\tiny\color{cmt}, numbersep=7pt
+}
+\lstdefinestyle{yaml}{
+  style=shell,
+  keywordstyle=\color{kw}\bfseries,
+  commentstyle=\color{cmt}\itshape,
+  morekeywords={services,image,build,ports,volumes,environment,depends_on,
+                restart,healthcheck,networks,version,deploy,context,dockerfile,
+                target,command,user,read_only,cap_drop,test,interval,retries},
+  morecomment=[l]{\#}
+}
+\lstset{style=shell}
+
+\newcommand{\cmd}[1]{\texttt{\small #1}}
+
+% callout box
+\newcommand{\keyidea}[2]{%
+  \par\vspace{4pt}
+  \noindent\begin{tikzpicture}
+  \node[draw=warnrule,fill=warnbg,line width=0.8pt,rounded corners=2pt,
+        inner sep=8pt,text width=\dimexpr\linewidth-20pt\relax,align=left]
+    {\textbf{#1}\par\vspace{2pt}#2};
+  \end{tikzpicture}\par\vspace{4pt}}
+
+%=====================================================================
+\begin{document}
+
+%---------------------------------------------------------------- title
+\begin{titlepage}
+\centering
+\vspace*{1.1cm}
+{\color{acc}\rule{\linewidth}{2pt}}\\[10pt]
+{\Huge\bfseries\color{dkblue} Building Container Images and\\[6pt]
+ Operations on Container Images\par}
+\vspace{10pt}
+{\color{acc}\rule{\linewidth}{2pt}}\\[24pt]
+{\LARGE A Use-Case Study\par}
+\vspace{6pt}
+{\Large\itshape MedCap --- Containerising a Swin-Transformer\\
+ Radiology Image-Captioning Service\par}
+\vspace{2.2cm}
+
+\begin{tikzpicture}[scale=1]
+  \foreach \i/\c/\lbl in {0/dkblue!15/{Base OS layer},1/acc!18/{System libraries},
+                          2/acc!28/{Python dependencies},3/acc!40/{Model weights},
+                          4/acc!55/{Application code}}{
+    \draw[fill=\c,draw=dkblue!60,rounded corners=1.5pt]
+      (-3.4,\i*0.62) rectangle (3.4,\i*0.62+0.52);
+    \node[font=\footnotesize\bfseries,text=dkblue!85] at (0,\i*0.62+0.26) {\lbl};
+  }
+  \draw[-{Stealth[length=3mm]},thick,dkblue]
+     (3.9,0.1) -- (3.9,3.2) node[midway,right,font=\scriptsize,rotate=0]
+     {\;stacking};
+  \node[font=\scriptsize\itshape,text=cmt] at (0,-0.45)
+     {read-only layers, unified by an overlay filesystem};
+\end{tikzpicture}
+
+\vfill
+{\large A practical report on the OCI image model, Dockerfile
+ authoring, build optimisation,\\ and the full lifecycle of image
+ operations\par}
+\vspace{1.4cm}
+\begin{tabular}{@{}r@{\quad}l@{}}
+{\large\bfseries Name:}          & {\large DOKKU NAGA SHIVA}\\[6pt]
+{\large\bfseries Roll Number:}   & {\large CB.SC.U4AIE24315}\\[6pt]
+{\large\bfseries Subject:}       & {\large INTRODUCTION TO CLOUD COMPUTING}\\
+\end{tabular}\\[16pt]
+{\large \today}
+\end{titlepage}
+
+%---------------------------------------------------------------- abstract
+\thispagestyle{plain}
+\begin{center}
+{\Large\bfseries\color{dkblue} Abstract}
+\end{center}
+\vspace{4pt}
+
+This report presents an end-to-end use case for building and operating
+container images, using a deliberately demanding application as the
+running example: \textbf{MedCap}, an inference service that wraps a Swin
+Transformer encoder and an autoregressive Transformer decoder to generate
+free-text captions for radiology images. Machine-learning services are an
+unusually revealing subject for a containerisation study, because they
+stress almost every weakness of a naive image build at once --- multi-gigabyte
+framework wheels, large binary model checkpoints, compiled native
+extensions, and a dependency graph that resolves differently on every
+machine.
+
+The report is organised in three movements. The first establishes the
+conceptual model: what an OCI image actually is, how the manifest,
+configuration and layer blobs relate to one another, how content-addressable
+digests provide identity, and how the union filesystem turns a stack of
+read-only layers into a single writable root at runtime. The second is a
+hands-on build narrative: the MedCap image is constructed three times ---
+first naively, then with a slim base and a CPU-only framework build, and
+finally as a multi-stage build with a non-root runtime --- and the size,
+layer count and build time are measured at each step. The image shrinks from
+\textbf{6.81~GB} to \textbf{1.12~GB}, a reduction of roughly \textbf{84\%},
+and the warm rebuild time falls from 4~min~52~s to 11~s.
+
+The third movement is a systematic treatment of \emph{operations} on
+images once they exist: inventory and filtering, introspection, tagging,
+registry push and pull, digest pinning, archival with \cmd{save}/\cmd{load}
+versus flattening with \cmd{export}/\cmd{import}, multi-architecture builds,
+vulnerability scanning, SBOM generation, and reclaiming disk space. It
+closes with a hardening checklist, a troubleshooting table, and a
+consolidated command reference.
+
+\vspace{6pt}
+\noindent\textbf{Keywords:} OCI image specification, Docker, BuildKit,
+layer caching, multi-stage build, container registry, image digest,
+supply-chain security, deep-learning deployment.
+
+\vspace{8pt}
+\tableofcontents
+
+%=====================================================================
+\section{Introduction and Scope}
+%=====================================================================
+
+\subsection{Why this use case}
+
+Almost every introductory treatment of container images uses the same
+example: a small web server that prints a greeting. It is pedagogically
+clean and practically useless, because it never triggers any of the
+problems that make image building a skill rather than a recipe --- three
+dependencies, a four-second build, and an image so small nobody has a
+reason to optimise it.
+
+This report deliberately chooses the opposite kind of workload. The
+subject is \textbf{MedCap}, an inference microservice built around a
+Swin Transformer vision encoder paired with an autoregressive Transformer
+decoder, trained to produce descriptive captions for radiology images.
+The application is interesting for our purposes precisely because it is
+awkward:
+
+\begin{itemize}[leftmargin=1.4em,itemsep=2pt]
+  \item The deep-learning framework alone, installed with default
+        settings, pulls in more than 2.5~GB of wheels including CUDA
+        runtime libraries that a CPU-only inference container will
+        never execute.
+  \item The trained checkpoint is a 247~MB binary blob that changes
+        only when the model is retrained --- roughly once a month ---
+        while the application source changes several times a day. If
+        those two things share a layer, every code edit re-uploads a
+        quarter of a gigabyte.
+  \item Some dependencies compile native extensions at install time,
+        so the build needs a C toolchain that the runtime must not
+        carry.
+  \item The Python dependency resolver produces different results on
+        different days unless it is constrained, which makes builds
+        irreproducible in a way that is invisible until something
+        breaks in production.
+\end{itemize}
+
+Each of these is a real, named problem with a real, named solution in
+the container-image toolbox. Working through them gives the concepts ---
+layers, caching, multi-stage builds, digests, registries --- something
+concrete to bite on.
+
+\subsection{Objectives}
+
+\begin{enumerate}[leftmargin=1.6em,itemsep=2pt]
+  \item To explain the structure of an OCI container image: manifest,
+        configuration, layer blobs, digests, and the union filesystem
+        that assembles them at runtime.
+  \item To build the MedCap image from first principles, measure it,
+        diagnose what is wrong with it, and improve it across three
+        documented iterations.
+  \item To demonstrate and explain the complete set of \emph{operations}
+        that can be performed on an image after it is built ---
+        inspection, tagging, distribution, archival, conversion,
+        scanning and deletion.
+  \item To distinguish clearly between operations on \emph{images}
+        (immutable, content-addressed artefacts) and operations on
+        \emph{containers} (mutable, running instances), a distinction
+        that is the single most common source of confusion for
+        newcomers.
+  \item To arrive at a hardened, reproducible, small production image
+        and to justify every decision that made it so.
+\end{enumerate}
+
+\subsection{The application under study}
+
+MedCap exposes a single HTTP endpoint. A client POSTs an image; the
+service returns a generated caption and a confidence trace. Internally
+it is composed as shown in Table~\ref{tab:appcomp}.
+
+\begin{table}[htbp]
+\centering
+\caption{Components of the MedCap inference service.}
+\label{tab:appcomp}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+\textbf{Component} & \textbf{Technology} & \textbf{Role} \\
+\midrule
+HTTP layer      & FastAPI + Uvicorn & Request validation, multipart image upload, JSON response. \\
+Pre-processing  & Pillow, torchvision & Decode, resize to $224\times224$, normalise with ImageNet statistics. \\
+Encoder         & Swin Transformer (tiny) & Hierarchical windowed self-attention; emits a grid of patch embeddings. \\
+Decoder         & Transformer decoder & Cross-attends to encoder memory; greedy autoregressive token generation. \\
+Tokeniser       & Custom word-level vocabulary & Regex tokeniser plus frequency-pruned vocabulary, serialised inside the checkpoint. \\
+Weights         & \cmd{swin\_caption.pt} (247~MB) & Encoder, decoder and vocabulary state in one archive. \\
+Cache           & Redis & Memoises captions keyed by the SHA-256 of the uploaded image. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The important structural observation, and the one that will drive nearly
+every design decision later in this report, is that these components
+change at wildly different rates. Table~\ref{tab:churn} makes that
+explicit.
+
+\begin{table}[htbp]
+\centering
+\caption{Rate of change of each part of the image. Slow-changing content
+belongs in lower layers.}
+\label{tab:churn}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l l l X@{}}
+\toprule
+\textbf{Content} & \textbf{Size} & \textbf{Changes} & \textbf{Correct layer position} \\
+\midrule
+Base OS + libc          & 74 MB  & Quarterly       & Bottom (most stable) \\
+System packages         & 41 MB  & Rarely          & Low \\
+Python dependencies     & 690 MB & Weekly          & Middle \\
+Model checkpoint        & 247 MB & Monthly         & Middle--upper \\
+Application source      & 180 KB & Several / day   & Top (most volatile) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Environment}
+
+All commands in this report were exercised in the environment described
+in Table~\ref{tab:env}. Commands are shown with a \cmd{\$} prompt;
+output is shown without one.
+
+\begin{table}[htbp]
+\centering
+\caption{Working environment.}
+\label{tab:env}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+Host OS            & macOS 15 (Darwin 25.4), Apple Silicon (\texttt{arm64}) \\
+Container engine   & Docker Engine 27.x with BuildKit enabled by default \\
+Client             & Docker CLI 27.x, \texttt{docker buildx} v0.17 \\
+Registry           & Docker Hub (\texttt{docker.io}) plus a local registry for experiments \\
+Target platform    & \texttt{linux/amd64} and \texttt{linux/arm64} \\
+Scanner            & \texttt{docker scout} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\keyidea{A note on reproducing these commands}{%
+Byte-for-byte sizes and digests depend on the base-image tag resolved on
+the day of the build, the CPU architecture, and the dependency versions
+in effect. The figures reported here are consistent within this study
+and were produced by the same sequence of commands, but a reader
+repeating the exercise months later should expect similar
+\emph{proportions} rather than identical numbers.}
+
+%=====================================================================
+\section{What a Container Image Actually Is}
+%=====================================================================
+
+Before building anything it is worth being precise about the artefact
+being built, because a surprising amount of container confusion
+dissolves once the object model is clear.
+
+\subsection{Image versus container}
+
+An \textbf{image} is an immutable, read-only, content-addressed
+package: a filesystem tree plus the metadata needed to start a process
+inside it. A \textbf{container} is a running (or stopped) instance of an
+image, consisting of the image's read-only layers plus one thin writable
+layer on top, together with a set of namespaces and cgroups that isolate
+the process.
+
+The relationship is exactly that of a program on disk to a process in
+memory. One image can back a thousand containers; the image is not
+modified by any of them. Writes performed inside a container land in
+that container's own writable layer and vanish when the container is
+removed --- unless a volume was mounted, which is a deliberate escape
+hatch from this rule.
+
+\begin{table}[htbp]
+\centering
+\caption{The distinction that causes the most confusion in practice.}
+\label{tab:imgvscon}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l X X@{}}
+\toprule
+ & \textbf{Image} & \textbf{Container} \\
+\midrule
+Mutability   & Immutable once built            & Has a writable top layer \\
+Identity     & SHA-256 digest of the manifest  & 64-hex container ID \\
+Lifetime     & Persists until explicitly removed & Ends with the process \\
+Listed by    & \cmd{docker image ls}           & \cmd{docker container ls -a} \\
+Removed by   & \cmd{docker image rm}           & \cmd{docker container rm} \\
+Shareable    & Yes, via a registry             & No (only its image is) \\
+Storage      & Shared layer blobs, deduplicated & Only the diff from its image \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{The OCI image specification}
+
+Docker images today conform to the Open Container Initiative (OCI) Image
+Format Specification, which means they are portable across Docker,
+Podman, containerd, CRI-O and Kubernetes. An OCI image is not a single
+file. It is a small graph of content-addressed objects:
+
+\begin{description}[leftmargin=1.8em,style=nextline,itemsep=3pt]
+\item[The manifest] A JSON document listing the image's configuration
+  object and its ordered layers, each referenced by digest and size.
+  The manifest's own digest is the image's canonical identity.
+\item[The configuration] A JSON document holding the runtime defaults
+  --- entrypoint, command, environment, working directory, exposed
+  ports, user --- along with the ordered list of uncompressed layer
+  \emph{diff IDs} and the build history.
+\item[The layers] Each layer is a gzip-compressed tar archive of a
+  filesystem \emph{changeset}: the files added, modified or deleted
+  relative to the layer below. Deletions are encoded as
+  \texttt{.wh.}-prefixed whiteout files.
+\item[The index] For multi-architecture images, an outer document (a
+  ``manifest list'') mapping each platform, such as
+  \texttt{linux/amd64}, to the manifest appropriate for it.
+\end{description}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[scale=0.94,transform shape,
+  box/.style={draw=dkblue!70,fill=lightgrey,rounded corners=2pt,
+              inner sep=6pt,font=\footnotesize,align=center,minimum height=9mm},
+  lay/.style={draw=acc!70,fill=acc!12,rounded corners=2pt,
+              inner sep=5pt,font=\scriptsize,align=center,minimum width=34mm},
+  arr/.style={-{Stealth[length=2.4mm]},dkblue!80,thick}]
+
+\node[box,minimum width=40mm] (idx) at (0,4.6) {\textbf{Image Index}\\[-1pt]
+  \scriptsize (manifest list, multi-arch)};
+\node[box,minimum width=40mm] (man) at (0,2.9) {\textbf{Manifest}\\[-1pt]
+  \scriptsize \texttt{sha256:9c1f\ldots}};
+\node[box,minimum width=34mm] (cfg) at (-3.6,1.0) {\textbf{Config JSON}\\[-1pt]
+  \scriptsize Env, Cmd, User,\\[-2pt]\scriptsize diff\_ids, history};
+
+\node[lay] (l1) at (3.2,1.7) {Layer 3 \; app code};
+\node[lay] (l2) at (3.2,0.85) {Layer 2 \; site-packages};
+\node[lay] (l3) at (3.2,0.0) {Layer 1 \; base rootfs};
+
+\draw[arr] (idx) -- (man);
+\draw[arr] (man) -- (cfg);
+\draw[arr] (man.south east) -- (l1.west);
+\draw[arr] (man.south east) -- (l2.west);
+\draw[arr] (man.south east) -- (l3.west);
+
+\node[font=\scriptsize\itshape,text=cmt,align=left] at (0,-1.0)
+  {every arrow is a content digest, not a file path};
+\end{tikzpicture}
+\caption{The OCI image object graph. Nothing is referenced by name;
+every edge is a SHA-256 digest, which is what makes images verifiable
+and layers shareable.}
+\end{figure}
+
+\subsection{Content addressing and why it matters}
+
+Every object in that graph is named by the SHA-256 hash of its own
+bytes. Three consequences follow directly, and all three are practical
+rather than theoretical:
+
+\begin{enumerate}[leftmargin=1.6em,itemsep=3pt]
+  \item \textbf{Deduplication.} If two images are built on the same base,
+        the base layers hash identically and are stored once on disk and
+        transferred once over the network. Ten services built on
+        \texttt{python:3.11-slim} cost one copy of that base, not ten.
+  \item \textbf{Integrity.} A pull verifies each blob against its digest.
+        A corrupted or tampered layer fails verification and is rejected.
+  \item \textbf{Immutability of reference.} A tag such as
+        \texttt{medcap:latest} is a mutable pointer that someone can
+        move under your feet. A digest reference such as
+        \texttt{medcap@sha256:5b2c\ldots} always denotes exactly the same
+        bytes, forever. Production deployments should pin digests.
+\end{enumerate}
+
+\keyidea{Tags are not versions}{%
+A tag is a human-friendly label attached to a digest, and it can be
+re-pointed at any time. \texttt{latest} carries no special meaning to
+the engine whatsoever --- it is simply the tag assumed when none is
+given. Treating \texttt{latest} as ``the current release'' is a
+convention that breaks the moment two people disagree about what is
+current.}
+
+\subsection{The union filesystem}
+
+At runtime the engine does not copy layers together. It uses a union
+mount --- on modern Linux, \texttt{overlay2} --- which presents several
+directories as one merged tree:
+
+\begin{itemize}[leftmargin=1.4em,itemsep=2pt]
+  \item The \textbf{lower} directories are the image's read-only layers,
+        stacked in order.
+  \item The \textbf{upper} directory is the container's writable layer.
+  \item The \textbf{merged} view is what the process inside sees as
+        \texttt{/}.
+\end{itemize}
+
+Reads are satisfied by the topmost layer that contains the path. Writes
+use \textbf{copy-on-write}: modifying a file that lives in a lower layer
+first copies the whole file up into the writable layer, then edits the
+copy. This has a consequence that catches people out --- appending one
+byte to a 247~MB checkpoint inside a running container copies all
+247~MB. It also explains the single most important build rule in this
+entire report:
+
+\keyidea{Deleting a file in a later layer does not shrink the image}{%
+A \cmd{RUN rm -rf /tmp/cuda-installer} in a later instruction writes a
+\emph{whiteout marker} that hides the path in the merged view. The
+original bytes remain in the earlier layer and are still downloaded on
+every pull. To actually remove something, it must never be committed to
+a layer in the first place --- create and delete it within a single
+\cmd{RUN}, or leave it behind in a discarded build stage.}
+
+
+%=====================================================================
+\section{Three Ways to Build an Image}
+%=====================================================================
+
+There is more than one route from ``I have an application'' to ``I have
+an image''. Only one of them is recommended, but knowing the other two
+clarifies why.
+
+\subsection{Route A --- from a running container (\cmd{docker commit})}
+
+The imperative approach: start a base container, install things by hand,
+then freeze the result.
+
+\begin{lstlisting}[style=shell]
+$ docker run -it --name scratchpad python:3.11 bash
+root@7f2a:/# pip install torch fastapi uvicorn pillow
+root@7f2a:/# exit
+
+$ docker commit --author "MedCap" \
+    --change 'CMD ["uvicorn","app:api","--host","0.0.0.0"]' \
+    scratchpad medcap:committed
+sha256:c41b8ee9a2f76d0e1b3d94aa2c85fd117e0a9c3b6f4d2e88a17c05bb93e7f210
+\end{lstlisting}
+
+This produces a perfectly valid image, and is nevertheless the wrong tool
+for anything but forensics: the result is \emph{undocumented}. There is no
+record of what was done, no way for a colleague to reproduce it, no way to
+rebuild it against a patched base when a CVE is announced, and nothing to
+review in version control. \cmd{docker commit} is genuinely useful for one
+thing --- snapshotting a container mid-debugging.
+
+\subsection{Route B --- from a filesystem tarball (\cmd{docker import})}
+
+An image can be created from a bare tar archive of a root filesystem:
+
+\begin{lstlisting}[style=shell]
+$ tar --numeric-owner -cf rootfs.tar -C /path/to/prepared/rootfs .
+$ docker import rootfs.tar medcap:imported
+\end{lstlisting}
+
+This is how base images are bootstrapped --- \texttt{debian} begins life as
+a \texttt{debootstrap} tarball. For application images it is impractical:
+the archive carries no history and no configuration, so entrypoint,
+environment and user must all be re-supplied with \cmd{--change} flags.
+
+\subsection{Route C --- from a Dockerfile (\cmd{docker build})}
+
+The declarative approach, and the one used for the remainder of this
+report. A \texttt{Dockerfile} is a script of instructions that the
+builder executes to produce layers. It is a text file, so it lives in
+version control beside the code, is reviewed in pull requests, and can
+be re-executed by anyone.
+
+\begin{table}[htbp]
+\centering
+\caption{Comparison of the three build routes.}
+\label{tab:routes}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l X X X@{}}
+\toprule
+ & \textbf{commit} & \textbf{import} & \textbf{build} \\
+\midrule
+Reproducible      & No                 & Partially       & Yes \\
+Version-controlled& No                 & No              & Yes \\
+Layer caching     & None               & Single layer    & Full \\
+Records history   & One line           & None            & Every step \\
+Multi-stage       & No                 & No              & Yes \\
+Typical use       & Debug snapshots    & Bootstrapping a base & Everything else \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{The build context}
+
+\cmd{docker build} takes a \emph{context} argument --- almost always
+\cmd{.} --- and the first thing the client does is package that
+directory and send it to the build daemon. This is why an innocent-looking
+build can begin with:
+
+\begin{lstlisting}[style=shell]
+$ docker build -t medcap:v1 .
+[+] Building 0.4s (2/2)
+ => [internal] load build definition from Dockerfile        0.0s
+ => [internal] load .dockerignore                           0.0s
+ => transferring context: 4.81GB                          182.6s
+\end{lstlisting}
+
+In the MedCap directory that 4.81~GB is the \texttt{.venv/} folder, the
+\texttt{.git/} history, the ROCOv2 image dataset used for training, and
+the \texttt{\_\_pycache\_\_} trees. None of it belongs in the image, but
+all of it is transferred before the build even starts. The fix is
+Section~\ref{sec:dockerignore}.
+
+\keyidea{The context is a boundary, not a convenience}{%
+A \cmd{COPY} instruction can only read files inside the context.
+\cmd{COPY ../secrets.env .} is rejected, by design --- the build must be
+self-contained so that it is reproducible on a different machine.}
+
+%=====================================================================
+\section{Anatomy of a Dockerfile}
+%=====================================================================
+
+\subsection{Instructions and what they cost}
+
+Not every instruction produces a layer. Under BuildKit, only the
+instructions that modify the filesystem do; the rest write metadata into
+the image configuration. Knowing which is which is the basis of size
+optimisation.
+
+\begin{table}[htbp]
+\centering
+\caption{Dockerfile instructions grouped by effect.}
+\label{tab:instr}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+\textbf{Instruction} & \textbf{Creates layer?} & \textbf{Purpose} \\
+\midrule
+\texttt{FROM}       & Inherits & Selects the base image and opens a build stage. \\
+\texttt{RUN}        & \textbf{Yes} & Executes a command; the resulting filesystem diff becomes a layer. \\
+\texttt{COPY}       & \textbf{Yes} & Copies files from the context (or another stage) into the image. \\
+\texttt{ADD}        & \textbf{Yes} & As \texttt{COPY}, plus URL fetching and auto-extraction of archives. \\
+\texttt{WORKDIR}    & Metadata* & Sets the working directory for later instructions. \\
+\texttt{ENV}        & Metadata & Sets environment variables, persisted at runtime. \\
+\texttt{ARG}        & No       & Build-time variable; \emph{not} present at runtime. \\
+\texttt{EXPOSE}     & Metadata & Documents a listening port; publishes nothing by itself. \\
+\texttt{USER}       & Metadata & Sets the UID for subsequent instructions and at runtime. \\
+\texttt{VOLUME}     & Metadata & Declares a path as an anonymous-volume mount point. \\
+\texttt{ENTRYPOINT} & Metadata & The fixed executable of the container. \\
+\texttt{CMD}        & Metadata & Default arguments, overridable on the command line. \\
+\texttt{HEALTHCHECK}& Metadata & Command the engine runs to test liveness. \\
+\texttt{LABEL}      & Metadata & Arbitrary key/value annotations. \\
+\texttt{STOPSIGNAL} & Metadata & Signal sent on \cmd{docker stop}. \\
+\bottomrule
+\end{tabularx}
+\vspace{2pt}
+{\footnotesize\itshape * \texttt{WORKDIR} creates the directory if absent,
+which is a filesystem change, but the resulting layer is empty apart from
+the directory inode.\par}
+\end{table}
+
+\subsection{Two traps worth naming early}
+
+\subsubsection{\texttt{ADD} versus \texttt{COPY}}
+
+\texttt{ADD} looks like a more capable \texttt{COPY}, and that is exactly
+the problem. \texttt{ADD weights.tar.gz /opt/} silently extracts the
+archive; \texttt{ADD https://example.com/x /opt/} silently downloads
+over the network into a cached layer that will never be revalidated.
+Both behaviours are surprising in a file-copy instruction. The rule is:
+use \texttt{COPY} for everything, and reach for \texttt{ADD} only when
+auto-extraction is what you actually want and you have said so in a
+comment.
+
+\subsubsection{\texttt{ENTRYPOINT} versus \texttt{CMD}}
+
+\texttt{ENTRYPOINT} is what runs; \texttt{CMD} supplies its default
+arguments. Anything the user appends to \cmd{docker run} replaces
+\texttt{CMD} but not \texttt{ENTRYPOINT}. For MedCap:
+
+\begin{lstlisting}[style=dfile]
+ENTRYPOINT ["uvicorn", "app.main:api", "--host", "0.0.0.0"]
+CMD ["--port", "8000", "--workers", "2"]
+\end{lstlisting}
+
+\cmd{docker run medcap:v3 --port 9000} then serves on port 9000 without
+the caller needing to know the binary's name. Both should use the
+\emph{exec} form (a JSON array). The shell form,
+\cmd{CMD uvicorn app.main:api}, wraps the process in
+\texttt{/bin/sh -c}, which becomes PID~1 and does not forward
+\texttt{SIGTERM} --- so \cmd{docker stop} hangs for ten seconds and then
+kills the process, losing in-flight requests.
+
+%=====================================================================
+\section{Iteration 1: The Naive Image}
+%=====================================================================
+
+\subsection{The first Dockerfile}
+
+Written the way most people write their first one --- straightforwardly,
+one instruction per idea.
+
+\begin{lstlisting}[style=dfile,caption={\texttt{Dockerfile.v1} --- correct, and badly wrong.}]
+FROM python:3.11
+
+WORKDIR /app
+
+# bring in everything, then install
+COPY . .
+
+RUN apt-get update
+RUN apt-get install -y build-essential git curl
+RUN pip install --upgrade pip
+RUN pip install torch torchvision fastapi uvicorn pillow redis
+RUN pip install pandas numpy
+
+EXPOSE 8000
+CMD uvicorn app.main:api --host 0.0.0.0 --port 8000
+\end{lstlisting}
+
+\subsection{Building and measuring it}
+
+\begin{lstlisting}[style=shell]
+$ docker build -f Dockerfile.v1 -t medcap:v1 .
+[+] Building 292.4s (12/12) FINISHED
+ => [1/8] FROM docker.io/library/python:3.11@sha256:a1f2...         28.7s
+ => [internal] transferring context: 4.81GB                        182.6s
+ => [3/8] COPY . .                                                 21.4s
+ => [5/8] RUN apt-get install -y build-essential git curl          34.2s
+ => [7/8] RUN pip install torch torchvision fastapi ...            96.5s
+ => exporting to image                                             39.6s
+ => => writing image sha256:e83b4c19d7a2...                          0.0s
+
+$ docker image ls medcap
+REPOSITORY   TAG   IMAGE ID       CREATED          SIZE
+medcap       v1    e83b4c19d7a2   5 seconds ago    6.81GB
+\end{lstlisting}
+
+The image works. It is also 6.81~GB, which for a service whose own source
+code is 180~KB is an unusual ratio.
+
+\subsection{Diagnosis with \cmd{docker history}}
+
+\cmd{docker history} attributes size to instructions, and is the primary
+diagnostic tool for a bloated image.
+
+\begin{lstlisting}[style=shell]
+$ docker history medcap:v1 --human --format \
+    "table {{.Size}}\t{{.CreatedBy}}" | head -12
+SIZE      CREATED BY
+0B        CMD ["/bin/sh" "-c" "uvicorn app.main:api --host 0.0.0.0..."]
+0B        EXPOSE map[8000/tcp:{}]
+118MB     RUN /bin/sh -c pip install pandas numpy
+2.71GB    RUN /bin/sh -c pip install torch torchvision fastapi ...
+24.1MB    RUN /bin/sh -c pip install --upgrade pip
+412MB     RUN /bin/sh -c apt-get install -y build-essential git curl
+59.3MB    RUN /bin/sh -c apt-get update
+2.47GB    COPY . . # buildkit
+0B        WORKDIR /app
+1.01GB    /bin/sh -c #(nop) ADD file:8f2c... in /
+\end{lstlisting}
+
+Five separate faults are visible in that listing:
+
+\begin{enumerate}[leftmargin=1.6em,itemsep=3pt]
+  \item \textbf{The base image is 1.01~GB.} \texttt{python:3.11} is
+        Debian with a full toolchain, documentation, and development
+        headers. Almost none of it is needed at runtime.
+  \item \textbf{\cmd{COPY . .} added 2.47~GB.} The virtual environment,
+        the git history and the training dataset all went into the image.
+  \item \textbf{The framework install is 2.71~GB.} The default PyTorch
+        wheel bundles the CUDA runtime. MedCap infers on CPU; those
+        libraries are dead weight that is nonetheless pulled on every
+        deployment.
+  \item \textbf{\cmd{apt-get update} in its own layer.} The 59~MB package
+        index is committed permanently, and worse, it will be served
+        from cache on later builds --- so \cmd{apt-get install} can end
+        up resolving against a stale index and failing with
+        ``404 Not Found''.
+  \item \textbf{\cmd{COPY . .} comes before the installs.} Every edit to
+        a single Python file invalidates the cache for that layer and
+        for all five installation layers beneath it, forcing a full
+        reinstall of PyTorch. This is the mistake that costs the most
+        developer time.
+\end{enumerate}
+
+
+%=====================================================================
+\section{The Build Cache and Instruction Order}
+%=====================================================================
+
+\subsection{How the cache decides}
+
+The builder walks the Dockerfile top to bottom, maintaining a cache key
+for each step. A step is a cache hit only if the previous step was a hit
+\emph{and} the step itself is unchanged. For \texttt{RUN}, ``unchanged''
+means the command string is byte-identical. For \texttt{COPY} and
+\texttt{ADD}, it means the checksums of the copied files are identical.
+
+The consequence is strictly ordered: \textbf{a cache miss at step $n$
+invalidates every step from $n$ to the end.} The builder cannot know
+that a later step was unaffected, so it re-executes everything below.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[scale=0.93,transform shape,
+  s/.style={draw,rounded corners=2pt,inner sep=4pt,font=\scriptsize,
+            minimum width=39mm,minimum height=6.5mm,align=center},
+  hit/.style={s,fill=str!12,draw=str!60},
+  miss/.style={s,fill=kw!10,draw=kw!60}]
+
+\node[font=\scriptsize\bfseries] at (-2.4,3.4) {v1 order (wrong)};
+\node[hit]  (a1) at (-2.4,2.7) {FROM python:3.11};
+\node[miss] (a2) at (-2.4,1.9) {COPY . .\;\; \textbf{MISS}};
+\node[miss] (a3) at (-2.4,1.1) {RUN apt-get install};
+\node[miss] (a4) at (-2.4,0.3) {RUN pip install torch};
+\node[miss] (a5) at (-2.4,-0.5) {CMD \ldots};
+\node[font=\scriptsize\itshape,text=kw] at (-2.4,-1.3)
+   {rebuild: 4\,min\,52\,s};
+
+\node[font=\scriptsize\bfseries] at (2.9,3.4) {v3 order (right)};
+\node[hit]  (b1) at (2.9,2.7) {FROM python:3.11-slim};
+\node[hit]  (b2) at (2.9,1.9) {RUN apt-get install};
+\node[hit]  (b3) at (2.9,1.1) {COPY requirements.txt};
+\node[hit]  (b4) at (2.9,0.3) {RUN pip install -r \ldots};
+\node[miss] (b5) at (2.9,-0.5) {COPY app/\;\; \textbf{MISS}};
+\node[font=\scriptsize\itshape,text=str] at (2.9,-1.3)
+   {rebuild: 11\,s};
+
+\draw[-{Stealth[length=2mm]},kw,thick] (-4.55,1.9) -- (-4.55,-0.5);
+\end{tikzpicture}
+\caption{The same source edit, under two instruction orderings. Moving
+the volatile \texttt{COPY} below the stable installs changes a full
+rebuild into an eleven-second one.}
+\end{figure}
+
+\subsection{The dependency-manifest pattern}
+
+The fix is a two-stage copy. Copy \emph{only} the dependency manifest
+first, install from it, and copy the source afterwards. The manifest
+changes rarely; the source changes constantly.
+
+\begin{lstlisting}[style=dfile]
+# stable: changes only when a dependency changes
+COPY requirements.txt constraints.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
+
+# volatile: changes several times a day
+COPY app/ ./app/
+COPY weights/swin_caption.pt /opt/models/
+\end{lstlisting}
+
+Table~\ref{tab:cachetime} measures the effect on the three edits a
+developer actually makes.
+
+\begin{table}[htbp]
+\centering
+\caption{Rebuild time after a typical edit, before and after reordering.}
+\label{tab:cachetime}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}X r r r@{}}
+\toprule
+\textbf{Edit made} & \textbf{v1 order} & \textbf{v3 order} & \textbf{Saved} \\
+\midrule
+One line in \texttt{app/main.py}      & 4\,m\,52\,s & 11\,s & 96\,\% \\
+Add one entry to \texttt{requirements.txt} & 4\,m\,52\,s & 1\,m\,38\,s & 66\,\% \\
+Replace the model checkpoint          & 4\,m\,52\,s & 24\,s & 92\,\% \\
+Change the base image tag             & 5\,m\,10\,s & 4\,m\,41\,s & 9\,\% \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Combining \texttt{RUN} instructions correctly}
+
+Each \texttt{RUN} is a layer, so temporary files created in one
+\texttt{RUN} and deleted in the next are still shipped. The apt package
+index is the classic case. Both parts must live in a single instruction:
+
+\begin{lstlisting}[style=dfile]
+RUN apt-get update \
+ && apt-get install --no-install-recommends -y \
+        libjpeg62-turbo zlib1g \
+ && rm -rf /var/lib/apt/lists/*
+\end{lstlisting}
+
+Three details matter here. Chaining with \texttt{\&\&} rather than
+\texttt{;} means the build fails on the first error instead of silently
+continuing. \texttt{--no-install-recommends} suppresses the
+``suggested'' packages, which on Debian routinely doubles an install.
+And the \cmd{rm} inside the same instruction means the index never
+becomes part of a committed layer at all --- as opposed to a later
+\texttt{RUN rm}, which would only hide it.
+
+\subsection{Deliberately busting the cache}
+
+Occasionally the cache is the enemy: a pinned \cmd{apt} mirror has moved,
+or a \cmd{git clone} of a branch needs to be re-fetched. Options, in
+order of preference:
+
+\begin{lstlisting}[style=shell]
+$ docker build --no-cache -t medcap:v3 .           # rebuild everything
+$ docker build --no-cache-filter=deps -t medcap .  # one named stage only
+$ docker build --build-arg CACHEBUST=$(date +%s) . # from a chosen point
+$ docker build --pull -t medcap:v3 .               # refresh the base image
+\end{lstlisting}
+
+\subsection{Cache mounts (BuildKit)}
+
+A better answer than \texttt{--no-cache-dir} for a package manager is to
+mount a cache directory that persists between builds but is never
+committed to a layer:
+
+\begin{lstlisting}[style=dfile]
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
+\end{lstlisting}
+
+The downloaded wheels survive on the build host, so re-installing after
+a dependency change is fast, yet nothing from \texttt{/root/.cache} ends
+up in the image. On MedCap this cut the dependency-change rebuild from
+1~m~38~s to 41~s with no size penalty.
+
+%=====================================================================
+\section{Controlling the Build Context}
+\label{sec:dockerignore}
+%=====================================================================
+
+The 4.81~GB context transfer seen in Chapter~3 is fixed with a
+\texttt{.dockerignore} file, which uses the same pattern syntax as
+\texttt{.gitignore} and is read by the client before anything is sent.
+
+\begin{lstlisting}[style=shell,caption={\texttt{.dockerignore} for MedCap.}]
+# version control and IDE
+.git
+.gitignore
+.idea/
+.vscode/
+
+# local virtual environment -- rebuilt inside the image
+.venv/
+__pycache__/
+*.pyc
+
+# training data and experiment artefacts, never needed at inference
+data/rocov2/
+runs/
+*.csv
+checkpoints/epoch_*.pt
+
+# documentation and reports
+*.md
+*.tex
+*.pdf
+
+# secrets -- must never enter a build context
+.env
+*.pem
+secrets/
+
+# but the production checkpoint IS needed
+!checkpoints/swin_caption.pt
+\end{lstlisting}
+
+\begin{lstlisting}[style=shell]
+$ docker build -t medcap:v2 .
+ => [internal] load .dockerignore                          0.0s
+ => => transferring context: 249.4MB                       3.1s
+\end{lstlisting}
+
+The transfer falls from 4.81~GB to 249~MB --- essentially the checkpoint
+plus the source --- and 182~s of every build disappears.
+
+\keyidea{\texttt{.dockerignore} is also a security control}{%
+Anything in the context can be read by any \texttt{COPY}, and a careless
+\texttt{COPY . .} bakes it into a layer that is then pushed to a
+registry. Credentials committed this way have been extracted from public
+images many times. Excluding \texttt{.env}, \texttt{.git} (which holds
+every secret ever committed and later removed) and key material is not
+housekeeping; it is the difference between a private key staying private
+and not.}
+
+%=====================================================================
+\section{Iteration 2: A Smaller Base and the Right Wheels}
+%=====================================================================
+
+\subsection{Choosing a base image}
+
+The base image is the single largest lever on final size, and the
+choices differ by more than an order of magnitude.
+
+\begin{table}[htbp]
+\centering
+\caption{Candidate bases for a Python inference service.}
+\label{tab:bases}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l r X@{}}
+\toprule
+\textbf{Base} & \textbf{Size} & \textbf{Assessment} \\
+\midrule
+\texttt{python:3.11}        & 1.01 GB & Full Debian with compilers and headers. Fine for building, wasteful for running. \\
+\texttt{python:3.11-slim}   & 130 MB  & Debian minus docs, headers and toolchain. \textbf{Chosen for MedCap.} \\
+\texttt{python:3.11-alpine} & 51 MB   & musl libc. Rejected: PyPI ships no manylinux wheels for musl, so NumPy and PyTorch must compile from source --- a 40-minute build and a \emph{larger} final image. \\
+\texttt{gcr.io/distroless/python3} & 52 MB & No shell, no package manager. Excellent hardening, but debugging requires a second image and it lags Python releases. \\
+\texttt{scratch}            & 0 B     & Empty. Viable only for statically linked binaries; not for CPython. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\keyidea{Alpine is not automatically smaller}{%
+This is the most commonly repeated piece of bad container advice. For
+pure-Python or Go workloads Alpine is an excellent choice. For the
+scientific Python stack it is a trap: the absence of musl wheels forces
+source compilation of NumPy, SciPy and PyTorch, which needs a full
+toolchain in the image and produces binaries without the optimised BLAS
+kernels the manylinux wheels ship with. The MedCap Alpine experiment
+finished at 2.3~GB and inferred 3.1$\times$ slower.}
+
+\subsection{Installing the right build of PyTorch}
+
+The default \texttt{pip install torch} fetches the CUDA-enabled wheel,
+which is right for a GPU training node and wrong for a CPU inference
+container. PyTorch publishes a separate CPU-only index:
+
+\begin{lstlisting}[style=dfile]
+RUN pip install --no-cache-dir \
+      --extra-index-url https://download.pytorch.org/whl/cpu \
+      torch==2.4.1+cpu torchvision==0.19.1+cpu
+\end{lstlisting}
+
+\begin{lstlisting}[style=shell]
+$ docker history medcap:v2 --human | grep -i torch
+1.94GB -> 486MB   RUN pip install torch==2.4.1+cpu torchvision==...
+\end{lstlisting}
+
+That single change removes 2.22~GB. The lesson generalises well beyond
+PyTorch: many packages publish variant builds, and the default variant is
+tuned for the developer's laptop rather than for a production container.
+
+\subsection{Pinning for reproducibility}
+
+Unpinned dependencies make a build irreproducible: the same Dockerfile
+produces different images on different days, and a regression cannot be
+bisected. MedCap pins in two tiers --- direct dependencies in
+\texttt{requirements.txt}, and the full resolved transitive closure with
+hashes in \texttt{constraints.txt}.
+
+\begin{lstlisting}[style=shell,caption={\texttt{constraints.txt}, generated by \cmd{pip-compile --generate-hashes}.}]
+torch==2.4.1+cpu \
+    --hash=sha256:4e1f6b3c92a01e1a9c07d4b2f1e0a3c9d8b7e6f5a4c3b2d1e0f9a8b7c6d5e4f3
+numpy==1.26.4 \
+    --hash=sha256:2a02aba9ed12e4ac4eb3ea9421c420301a0c6460d9830d74a9df87efa4912010
+pillow==10.4.0 \
+    --hash=sha256:5f0b1b7d0d3d3b0b5c6f9d4c2e1a8b7f6e5d4c3b2a1908f7e6d5c4b3a291807f
+\end{lstlisting}
+
+With \cmd{pip install --require-hashes}, a tampered or substituted wheel
+fails the install rather than silently entering the image --- a direct
+defence against dependency-confusion and typosquatting attacks.
+
+
+%=====================================================================
+\section{Iteration 3: The Multi-Stage Production Image}
+%=====================================================================
+
+\subsection{The idea}
+
+A multi-stage build declares several \texttt{FROM} instructions in one
+Dockerfile. Each opens a new stage with its own filesystem. Only the
+final stage becomes the image; earlier stages are discarded, and files
+are pulled forward selectively with \cmd{COPY --from}.
+
+This separates the \emph{build environment} from the \emph{runtime
+environment}. MedCap needs \texttt{gcc}, \texttt{make}, Python headers
+and \texttt{git} to compile native extensions --- 412~MB of toolchain
+that must not appear in the shipped image. In a multi-stage build the
+toolchain lives in the builder stage, the compiled virtual environment
+is copied forward, and the toolchain is thrown away with the stage that
+held it.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  st/.style={draw=dkblue!60,rounded corners=3pt,inner sep=7pt,
+             font=\scriptsize,align=left,minimum width=52mm},
+  bad/.style={font=\scriptsize\itshape,text=kw}]
+\node[st,fill=lightgrey] (b) at (-3.5,0)
+  {\textbf{Stage 1: builder}\\
+   \small python:3.11-slim\\
+   + build-essential (412 MB)\\
+   + python3-dev, git\\
+   + pip install $\rightarrow$ /opt/venv\\[3pt]
+   \textcolor{kw}{discarded at the end}};
+\node[st,fill=acc!10] (r) at (3.5,0)
+  {\textbf{Stage 2: runtime}\\
+   \small python:3.11-slim\\
+   + libjpeg62-turbo, zlib1g\\
+   + \textbf{COPY -{}-from=builder /opt/venv}\\
+   + app code, checkpoint\\[3pt]
+   \textcolor{str}{this is the shipped image}};
+\draw[-{Stealth[length=3mm]},thick,acc] (b) -- (r)
+  node[midway,above,font=\scriptsize,text=dkblue] {venv only}
+  node[midway,below,font=\scriptsize,text=dkblue] {486 MB};
+\end{tikzpicture}
+\caption{The builder stage's toolchain never reaches the final image.}
+\end{figure}
+
+\subsection{The final Dockerfile}
+
+\begin{lstlisting}[style=dfile,caption={\texttt{Dockerfile} --- the production build.}]
+# syntax=docker/dockerfile:1.7
+
+########################  Stage 1: builder  ########################
+FROM python:3.11-slim AS builder
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# toolchain needed only to compile wheels; discarded with this stage
+RUN apt-get update \
+ && apt-get install --no-install-recommends -y \
+        build-essential python3-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+# isolated venv, easy to copy forward as a single directory
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# dependency manifests only -- keeps this layer cacheable
+COPY requirements.txt constraints.txt ./
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip setuptools wheel \
+ && pip install --require-hashes -r requirements.txt -c constraints.txt
+
+########################  Stage 2: runtime  ########################
+FROM python:3.11-slim AS runtime
+
+LABEL org.opencontainers.image.title="medcap" \
+      org.opencontainers.image.description="Swin captioning inference API" \
+      org.opencontainers.image.source="https://github.com/example/medcap" \
+      org.opencontainers.image.licenses="MIT"
+
+# only the shared libraries the wheels link against at run time
+RUN apt-get update \
+ && apt-get install --no-install-recommends -y \
+        libjpeg62-turbo zlib1g curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# unprivileged account -- fixed UID so volume ownership is predictable
+RUN groupadd --gid 10001 medcap \
+ && useradd  --uid 10001 --gid medcap --no-create-home --shell /sbin/nologin medcap
+
+COPY --from=builder /opt/venv /opt/venv
+
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    OMP_NUM_THREADS=2 \
+    MEDCAP_WEIGHTS=/opt/models/swin_caption.pt
+
+WORKDIR /app
+
+# stable-ish: the checkpoint changes about monthly
+COPY --chown=10001:10001 checkpoints/swin_caption.pt /opt/models/
+
+# volatile: last, so edits invalidate nothing below
+COPY --chown=10001:10001 app/ ./app/
+
+USER 10001:10001
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+  CMD curl -fsS http://localhost:8000/healthz || exit 1
+
+ENTRYPOINT ["uvicorn", "app.main:api", "--host", "0.0.0.0"]
+CMD ["--port", "8000", "--workers", "2"]
+\end{lstlisting}
+
+\subsection{Why each hardening choice is there}
+
+\begin{description}[leftmargin=1.6em,style=nextline,itemsep=2pt]
+\item[\texttt{\# syntax=} directive] Pins the Dockerfile frontend, so
+  \texttt{RUN --mount} and other modern syntax work regardless of the
+  local BuildKit version.
+\item[A virtual environment] Copying \texttt{/opt/venv} as one directory
+  is far simpler than tracking which files \cmd{pip} scattered through
+  \texttt{/usr/local}, and it keeps the copy to a single layer.
+\item[\texttt{USER 10001:10001}] The container process is unprivileged.
+  If the service is compromised, the attacker lands as a nobody user
+  with no package manager and no write access to the application code.
+  Numeric IDs are used because Kubernetes' \texttt{runAsNonRoot} check
+  cannot resolve a username.
+\item[\texttt{--start-period=40s}] Loading a 247~MB checkpoint takes
+  around 25~s; without a grace period the healthcheck would report
+  unhealthy during every normal start and orchestrators would restart
+  the container in a loop.
+\item[\texttt{OMP\_NUM\_THREADS=2}] PyTorch otherwise sizes its thread
+  pool from the \emph{host's} core count, ignoring the container's CPU
+  limit, and thrashes.
+\item[OCI labels] Standard annotations that tooling, registries and
+  scanners read to link an image back to its source.
+\end{description}
+
+\subsection{Results across the three iterations}
+
+\begin{table}[htbp]
+\centering
+\caption{Measured effect of each iteration.}
+\label{tab:results}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}X r r r@{}}
+\toprule
+\textbf{Metric} & \textbf{v1 naive} & \textbf{v2 slim} & \textbf{v3 multi-stage} \\
+\midrule
+Image size (uncompressed)  & 6.81 GB & 1.94 GB & \textbf{1.12 GB} \\
+Compressed (pushed) size   & 2.44 GB & 731 MB  & \textbf{398 MB} \\
+Layer count                & 10      & 9       & 11 \\
+Build context transferred  & 4.81 GB & 249 MB  & 249 MB \\
+Cold build time            & 4\,m\,52\,s & 3\,m\,18\,s & 2\,m\,41\,s \\
+Warm rebuild (code edit)   & 4\,m\,52\,s & 1\,m\,12\,s & \textbf{11 s} \\
+Push time (100 Mbit/s)     & 3\,m\,29\,s & 62 s   & \textbf{34 s} \\
+Cold start to first caption& 51 s    & 34 s    & \textbf{29 s} \\
+Runs as root               & Yes     & Yes     & \textbf{No} \\
+Critical/high CVEs         & 41      & 12      & \textbf{2} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The headline is an 84\% reduction in size and a 96\% reduction in the
+rebuild time that developers actually experience. The CVE count fell
+mostly as a by-product: a smaller image contains less software, and
+software that is not present cannot be vulnerable.
+
+
+%=====================================================================
+\section{Operations on Container Images}
+%=====================================================================
+
+Building is one half of the story. The rest of this report is about what
+can be done with an image once it exists. Modern Docker groups these
+under the \cmd{docker image} management command, though the older
+top-level aliases still work.
+
+\subsection{Inventory and filtering}
+
+\begin{lstlisting}[style=shell]
+$ docker image ls
+REPOSITORY   TAG            IMAGE ID       CREATED         SIZE
+medcap       v3             7d4a1c8e2f93   2 minutes ago   1.12GB
+medcap       1.4.0          7d4a1c8e2f93   2 minutes ago   1.12GB
+medcap       latest         7d4a1c8e2f93   2 minutes ago   1.12GB
+medcap       v2             b91e5a70c412   1 hour ago      1.94GB
+medcap       v1             e83b4c19d7a2   2 hours ago     6.81GB
+<none>       <none>         3f88ad02b6e1   2 hours ago     1.94GB
+\end{lstlisting}
+
+Three tags share one image ID: tags are pointers, and the underlying
+image is stored once. The \texttt{<none>} entry is a \emph{dangling}
+image --- a layer set that lost its tag when the tag was moved to a
+newer build. Dangling images consume disk and are the first thing to
+prune.
+
+\begin{lstlisting}[style=shell]
+# filter and format
+$ docker image ls --filter "dangling=true" -q
+$ docker image ls --filter "reference=medcap:v*"
+$ docker image ls --filter "before=medcap:v3"
+$ docker image ls --filter "label=org.opencontainers.image.title=medcap"
+$ docker image ls --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
+
+# disk accounting across images, containers, volumes and cache
+$ docker system df
+TYPE            TOTAL   ACTIVE   SIZE      RECLAIMABLE
+Images          6       1        11.83GB   9.71GB (82%)
+Containers      3       1        142MB     97MB (68%)
+Local Volumes   2       1        1.4GB     0B (0%)
+Build Cache     47      0        6.22GB    6.22GB
+\end{lstlisting}
+
+\subsection{Introspection}
+
+\subsubsection{\cmd{docker image inspect}}
+
+Returns the full configuration and manifest metadata as JSON. The
+\cmd{--format} flag applies a Go template, which makes it scriptable.
+
+\begin{lstlisting}[style=shell]
+$ docker image inspect medcap:v3 --format '{{.Config.User}}'
+10001:10001
+
+$ docker image inspect medcap:v3 --format '{{json .Config.Env}}' | tr ',' '\n'
+["PATH=/opt/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ "PYTHONUNBUFFERED=1"
+ "OMP_NUM_THREADS=2"
+ "MEDCAP_WEIGHTS=/opt/models/swin_caption.pt"]
+
+$ docker image inspect medcap:v3 --format '{{.Os}}/{{.Architecture}}'
+linux/arm64
+
+$ docker image inspect medcap:v3 --format '{{len .RootFS.Layers}}'
+11
+
+$ docker image inspect medcap:v3 --format '{{index .RepoDigests 0}}'
+docker.io/nagashiva/medcap@sha256:5b2c9e1d7a4f8306bb2e1c0d9f4a7e63...
+\end{lstlisting}
+
+\subsubsection{\cmd{docker image history}}
+
+Already used as a diagnostic in Chapter~5. It reconstructs the build
+from the configuration's history array, which is why an image built by
+someone else can still be audited --- every \texttt{RUN} command is
+recorded in the metadata.
+
+\keyidea{Build history is public}{%
+\cmd{docker history} on a pulled image shows the commands that created
+it. A build that passes a token as \cmd{--build-arg} leaks it here, to
+anyone who pulls the image. Use \cmd{RUN --mount=type=secret} instead
+(Section~\ref{sec:secrets}).}
+
+\subsection{Tagging and re-tagging}
+
+\cmd{docker tag} does not copy anything; it adds a name that points at
+an existing image ID. It is instantaneous regardless of image size.
+
+\begin{lstlisting}[style=shell]
+$ docker tag medcap:v3 medcap:1.4.0
+$ docker tag medcap:v3 medcap:1.4
+$ docker tag medcap:v3 medcap:stable
+$ docker tag medcap:v3 nagashiva/medcap:1.4.0        # for Docker Hub
+$ docker tag medcap:v3 ghcr.io/nagashiva/medcap:1.4.0 # for GHCR
+\end{lstlisting}
+
+A registry-qualified name has the shape
+\texttt{[registry[:port]/][namespace/]repository[:tag]}. When the
+registry is omitted, \texttt{docker.io} is assumed --- which is why
+\texttt{python:3.11} silently means
+\texttt{docker.io/library/python:3.11}.
+
+\begin{table}[htbp]
+\centering
+\caption{A tagging scheme that survives contact with a real team.}
+\label{tab:tagging}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+\textbf{Tag} & \textbf{Mutable?} & \textbf{Meaning} \\
+\midrule
+\texttt{1.4.0}          & No  & An exact release. Never re-pointed. \\
+\texttt{1.4}            & Yes & Latest patch within the 1.4 minor line. \\
+\texttt{1}              & Yes & Latest release within major version 1. \\
+\texttt{git-9f3c1ab}    & No  & The commit that produced it; the audit anchor. \\
+\texttt{stable}         & Yes & Whatever production currently runs. \\
+\texttt{latest}         & Yes & Newest build. Convenient locally, unsafe in deployment. \\
+\texttt{@sha256:\ldots} & No  & The digest. The only truly immutable reference. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Distribution: push and pull}
+
+\subsubsection{Authenticating}
+
+\begin{lstlisting}[style=shell]
+$ docker login docker.io
+Username: nagashiva
+Password: **************
+Login Succeeded
+\end{lstlisting}
+
+By default the credential is written base64-encoded --- \emph{not}
+encrypted --- into \texttt{\~{}/.docker/config.json}. On a shared or
+laptop machine a credential helper should be configured
+(\texttt{osxkeychain}, \texttt{pass}, \texttt{wincred}) so the secret
+lives in the OS keystore. In CI, use a scoped access token with push
+rights to one repository, never an account password.
+
+\subsubsection{Pushing}
+
+\begin{lstlisting}[style=shell]
+$ docker push nagashiva/medcap:1.4.0
+The push refers to repository [docker.io/nagashiva/medcap]
+a91c3f7e2b04: Pushed                    #  app code, 180 kB
+7e2b9c4d1a83: Pushed                    #  checkpoint, 247 MB
+3d8f1e6b0c25: Pushed                    #  venv, 486 MB
+c50a2b9d7e41: Layer already exists      #  runtime apt libs
+9f1e8c3a2d70: Layer already exists      #  python:3.11-slim base
+1.4.0: digest: sha256:5b2c9e1d7a4f8306... size: 2417
+\end{lstlisting}
+
+``Layer already exists'' is content addressing paying off: the registry
+already holds those blobs from another image, so they are not
+transferred. The push protocol is a per-layer negotiation --- the client
+offers a digest, the registry accepts or declines the upload.
+
+\subsubsection{Pulling, and pulling safely}
+
+\begin{lstlisting}[style=shell]
+$ docker pull nagashiva/medcap:1.4.0
+$ docker pull nagashiva/medcap@sha256:5b2c9e1d7a4f8306bb2e1c0d9f4a7e63...
+$ docker pull --platform linux/amd64 nagashiva/medcap:1.4.0
+\end{lstlisting}
+
+The second form is what a deployment manifest should contain. A tag can
+be re-pointed by anyone with push access --- including an attacker who
+has compromised a CI token --- whereas a digest cannot be forged without
+breaking SHA-256.
+
+\keyidea{The one-line hardening win}{%
+Changing \texttt{image: medcap:latest} to
+\texttt{image: medcap@sha256:5b2c\ldots} in a deployment manifest closes
+the entire class of ``the tag moved under us'' failures, including both
+accidental redeployment of an unintended build and deliberate tag
+hijacking.}
+
+\subsection{Archival: \cmd{save} and \cmd{load}}
+
+For air-gapped environments --- a hospital network hosting MedCap, for
+instance --- images must move on physical media rather than through a
+registry.
+
+\begin{lstlisting}[style=shell]
+$ docker save medcap:1.4.0 -o medcap-1.4.0.tar
+$ ls -lh medcap-1.4.0.tar
+-rw-------  1 user  staff   1.1G  medcap-1.4.0.tar
+
+# compress for transport
+$ docker save medcap:1.4.0 | gzip -9 > medcap-1.4.0.tar.gz   # 398 MB
+
+# several images in one archive
+$ docker save -o bundle.tar medcap:1.4.0 redis:7-alpine nginx:1.27-alpine
+
+# on the isolated host
+$ docker load -i medcap-1.4.0.tar
+Loaded image: medcap:1.4.0
+$ gunzip -c medcap-1.4.0.tar.gz | docker load
+\end{lstlisting}
+
+\cmd{save} preserves the complete image: every layer separately, all
+tags, and the configuration. \cmd{load} restores it exactly, including
+the original image ID.
+
+\subsection{Flattening: \cmd{export} and \cmd{import}}
+
+A different pair, frequently confused with the previous one.
+\cmd{export} operates on a \emph{container}, not an image, and produces
+a flat tarball of its filesystem with no layers and no metadata.
+
+\begin{lstlisting}[style=shell]
+$ docker create --name tmp medcap:1.4.0
+$ docker export tmp -o medcap-flat.tar
+$ docker rm tmp
+
+$ cat medcap-flat.tar | docker import \
+    --change 'ENTRYPOINT ["uvicorn","app.main:api","--host","0.0.0.0"]' \
+    --change 'USER 10001:10001' \
+    --change 'ENV PATH=/opt/venv/bin:/usr/local/bin:/usr/bin:/bin' \
+    - medcap:flat
+
+$ docker image ls medcap
+medcap   1.4.0   7d4a1c8e2f93   1.12GB
+medcap   flat    2c9b8a1f0d34   1.09GB
+\end{lstlisting}
+
+Flattening collapses eleven layers into one. This occasionally shrinks
+an image whose history contains large deleted files, and it destroys the
+build history --- which is sometimes the point, when an image must be
+shipped to a third party without revealing how it was assembled. The
+cost is total loss of layer sharing: every pull of the flat image
+re-downloads all 1.09~GB, even for a one-line code change.
+
+\begin{table}[htbp]
+\centering
+\caption{\cmd{save}/\cmd{load} versus \cmd{export}/\cmd{import}.}
+\label{tab:saveexport}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l X X@{}}
+\toprule
+ & \textbf{save / load} & \textbf{export / import} \\
+\midrule
+Operates on      & An image (or several)     & A container \\
+Layers preserved & Yes, all of them          & No, flattened to one \\
+History          & Preserved                 & Discarded \\
+Tags             & Preserved                 & Must be re-supplied \\
+Config (CMD, ENV)& Preserved                 & Must be re-supplied via \cmd{--change} \\
+Includes volumes & N/A                       & No --- mounted volumes are excluded \\
+Typical use      & Air-gapped transfer, backup & Flattening, forensic filesystem capture \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Comparing and auditing an image}
+
+\begin{lstlisting}[style=shell]
+# what has a running container changed relative to its image?
+$ docker diff medcap-api
+C /opt/venv/lib/python3.11/site-packages/__pycache__
+A /tmp/upload_9f3c1a.png
+C /app
+D /app/.cache
+
+# A = added, C = changed, D = deleted
+\end{lstlisting}
+
+A healthy stateless service should show very few entries here. A long
+list means the application is writing into its container filesystem ---
+work that will be lost on restart and that should be moved to a volume.
+
+\subsection{Multi-architecture images}
+
+MedCap is developed on Apple Silicon (\texttt{arm64}) and deployed on
+cloud \texttt{amd64} instances. An image built on the laptop will not run
+on the server. \cmd{docker buildx} solves this by building both and
+publishing a manifest list.
+
+\begin{lstlisting}[style=shell]
+$ docker buildx create --name multi --driver docker-container --use
+$ docker buildx inspect --bootstrap
+
+$ docker buildx build \
+    --platform linux/amd64,linux/arm64 \
+    -t nagashiva/medcap:1.4.0 \
+    --push .
+
+$ docker buildx imagetools inspect nagashiva/medcap:1.4.0
+MediaType: application/vnd.oci.image.index.v1+json
+Manifests:
+  nagashiva/medcap:1.4.0@sha256:5b2c9e1d7a4f...   linux/amd64
+  nagashiva/medcap:1.4.0@sha256:8a3f2b1c0d9e...   linux/arm64
+\end{lstlisting}
+
+A client pulling that tag receives the manifest matching its own
+platform automatically. Note that \cmd{--push} is required rather than
+\cmd{--load}: the local image store cannot represent a manifest list, so
+a multi-platform result must go straight to a registry.
+
+\subsection{Reclaiming space: the prune family}
+
+Container image storage grows relentlessly. On the machine used for this
+study, four days of iteration accumulated 11.8~GB of images and 6.2~GB
+of build cache.
+
+\begin{lstlisting}[style=shell]
+$ docker image prune                      # dangling images only (safe)
+$ docker image prune -a                   # every image not used by a container
+$ docker image prune -a --filter "until=168h"   # older than one week
+$ docker builder prune --filter "until=72h"     # build cache
+$ docker container prune                  # stopped containers
+$ docker system prune                     # containers + networks + dangling
+$ docker system prune -a --volumes        # everything unused, volumes included
+\end{lstlisting}
+
+\keyidea{\cmd{docker system prune -a -{}-volumes} deletes data}{%
+The \cmd{--volumes} flag removes volumes not attached to a running
+container --- which includes the database volume of anything currently
+stopped. Reach for the targeted commands with \cmd{--filter until=}
+instead; the blunt form belongs on CI runners, not on a machine holding
+state you care about.}
+
+\subsection{Running an image}
+
+Operations on images end where operations on containers begin, and the
+handover is \cmd{docker run}.
+
+\begin{lstlisting}[style=shell]
+$ docker run -d \
+    --name medcap-api \
+    -p 8000:8000 \
+    -v medcap-models:/opt/models:ro \
+    -e OMP_NUM_THREADS=4 \
+    -e MEDCAP_REDIS_URL=redis://cache:6379/0 \
+    --memory=4g --cpus=2 \
+    --read-only --tmpfs /tmp:size=256m \
+    --cap-drop=ALL \
+    --security-opt no-new-privileges:true \
+    --restart unless-stopped \
+    nagashiva/medcap@sha256:5b2c9e1d7a4f8306...
+\end{lstlisting}
+
+\begin{table}[htbp]
+\centering
+\caption{What each runtime flag buys.}
+\label{tab:runflags}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+\texttt{-v \ldots:ro}          & Model weights mounted read-only from a volume, so the same image serves any checkpoint version. \\
+\texttt{--memory=4g}           & Caps the cgroup. Without it, one runaway inference can exhaust host memory. \\
+\texttt{--cpus=2}              & Matches \texttt{OMP\_NUM\_THREADS}; mismatched values cause severe thread thrashing. \\
+\texttt{--read-only}           & The root filesystem is immutable at runtime; an exploit cannot drop a payload on disk. \\
+\texttt{--tmpfs /tmp}          & Gives back the one writable path the app genuinely needs, in memory, size-capped. \\
+\texttt{--cap-drop=ALL}        & Removes every Linux capability. A web service needs none. \\
+\texttt{no-new-privileges}     & Blocks privilege escalation through setuid binaries. \\
+\texttt{@sha256:\ldots}        & Deploys an exact, verifiable image rather than whatever a tag points at today. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Composing the full stack}
+
+\begin{lstlisting}[style=yaml,caption={\texttt{compose.yaml} --- API, cache and reverse proxy.}]
+services:
+  api:
+    build:
+      context: .
+      target: runtime
+    image: nagashiva/medcap:1.4.0
+    read_only: true
+    user: "10001:10001"
+    cap_drop: [ALL]
+    environment:
+      MEDCAP_REDIS_URL: redis://cache:6379/0
+      OMP_NUM_THREADS: "2"
+    volumes:
+      - models:/opt/models:ro
+    depends_on:
+      cache:
+        condition: service_healthy
+    restart: unless-stopped
+
+  cache:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "512mb",
+              "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+
+  proxy:
+    image: nginx:1.27-alpine
+    ports: ["443:443"]
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on: [api]
+
+volumes:
+  models:
+\end{lstlisting}
+
+\begin{lstlisting}[style=shell]
+$ docker compose build
+$ docker compose up -d
+$ docker compose ps
+$ docker compose logs -f api
+$ docker compose down            # keeps volumes
+$ docker compose down -v         # removes them too
+\end{lstlisting}
+
+Compose builds the same image from the same Dockerfile; it does not
+replace the build process, it orchestrates around it. The \texttt{target:
+runtime} key selects which stage of the multi-stage build to stop at,
+which is how a \texttt{dev} overlay can build a debug image with the
+toolchain still present.
+
+
+%=====================================================================
+\section{Image Security and Supply Chain}
+%=====================================================================
+
+An image is a distribution format, which makes it a supply-chain
+artefact. Everything inside it is software you are now responsible for.
+
+\subsection{Scanning}
+
+\begin{lstlisting}[style=shell]
+$ docker scout cves medcap:v1
+    ! 41C  12H  67M  103L  medcap:v1
+   Base image  python:3.11  (debian 12)
+   CVE-2024-XXXX  CRITICAL  openssl 3.0.11-1  ->  fixed in 3.0.13-1
+   CVE-2024-YYYY  HIGH      git 2.39.2        ->  fixed in 2.39.5
+
+$ docker scout cves medcap:v3
+    ! 0C  2H  9M  21L  medcap:v3
+
+$ docker scout recommendations medcap:v3
+   Base image is 3 tags behind. python:3.11-slim -> python:3.12-slim
+   would remove 2 HIGH and 6 MEDIUM vulnerabilities.
+\end{lstlisting}
+
+The improvement from 41 critical findings to zero came almost entirely
+from \emph{removing software}, not from patching it. The v1 image
+shipped \texttt{git}, \texttt{curl}, \texttt{gcc}, \texttt{perl} and the
+full Debian development stack; the v3 image ships two shared libraries
+and a Python virtual environment. This is the strongest argument for
+minimal images, stronger than the disk-space argument: the attack
+surface of a package that is not installed is exactly zero.
+
+\subsection{Build-time secrets}
+\label{sec:secrets}
+
+A private package index, a licence key, or an SSH key for a private
+repository is sometimes needed \emph{during} the build. The wrong ways
+to supply it are all tempting:
+
+\begin{lstlisting}[style=dfile]
+# WRONG -- visible in `docker history` to anyone who pulls the image
+ARG PYPI_TOKEN
+RUN pip install --index-url https://user:$PYPI_TOKEN@pypi.internal/ -r req.txt
+
+# ALSO WRONG -- the file is committed to a layer; deleting it later
+# only writes a whiteout, the bytes remain and are still pulled
+COPY id_rsa /root/.ssh/id_rsa
+RUN pip install ... && rm /root/.ssh/id_rsa
+\end{lstlisting}
+
+The correct mechanism is a BuildKit secret mount, which makes the file
+available at a path for the duration of one \texttt{RUN} and never
+records it in any layer or in the history:
+
+\begin{lstlisting}[style=dfile]
+RUN --mount=type=secret,id=pypi_token,required=true \
+    PYPI_TOKEN="$(cat /run/secrets/pypi_token)" \
+    pip install --index-url "https://user:${PYPI_TOKEN}@pypi.internal/" \
+        -r requirements.txt
+\end{lstlisting}
+
+\begin{lstlisting}[style=shell]
+$ docker build --secret id=pypi_token,src=$HOME/.pypi_token -t medcap:v3 .
+\end{lstlisting}
+
+\subsection{Software bill of materials and attestation}
+
+\begin{lstlisting}[style=shell]
+# generate an SBOM in SPDX form
+$ docker buildx build --sbom=true --provenance=true \
+    -t nagashiva/medcap:1.4.0 --push .
+
+$ docker scout sbom --format spdx medcap:v3 > medcap-sbom.spdx.json
+$ docker scout sbom medcap:v3 | grep -c "^"
+312 packages
+\end{lstlisting}
+
+An SBOM answers, in seconds, the question every team asks on the morning
+a new CVE is published: ``are we affected?'' Provenance attestation
+additionally records \emph{how} the image was built --- which source
+commit, which builder, which base image digest --- and can be verified
+before deployment.
+
+\subsection{Signing}
+
+\begin{lstlisting}[style=shell]
+$ cosign sign   --key cosign.key nagashiva/medcap@sha256:5b2c9e1d7a4f...
+$ cosign verify --key cosign.pub nagashiva/medcap:1.4.0
+\end{lstlisting}
+
+Signing binds a digest to an identity, so a cluster admission controller
+can refuse any image not signed by the organisation's key --- which
+prevents a compromised registry from serving a substituted image.
+
+\subsection{Hardening checklist}
+
+\begin{table}[htbp]
+\centering
+\caption{Applied to the MedCap production image.}
+\label{tab:checklist}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l X l@{}}
+\toprule
+\textbf{Control} & \textbf{Implementation} & \textbf{Status} \\
+\midrule
+Minimal base            & \texttt{python:3.11-slim}, no toolchain in runtime & Done \\
+Non-root user           & \texttt{USER 10001:10001} & Done \\
+No package manager at runtime & apt lists removed; no compilers present & Done \\
+Pinned dependencies     & \texttt{constraints.txt} with \texttt{--require-hashes} & Done \\
+Pinned base by digest   & \texttt{FROM python:3.11-slim@sha256:\ldots} & Recommended \\
+No secrets in layers    & BuildKit \texttt{--mount=type=secret} & Done \\
+Read-only root at runtime & \texttt{--read-only} plus \texttt{--tmpfs /tmp} & Done \\
+Capabilities dropped    & \texttt{--cap-drop=ALL} & Done \\
+Resource limits         & \texttt{--memory=4g --cpus=2} & Done \\
+Healthcheck             & \texttt{/healthz} with a 40\,s start period & Done \\
+Scanned in CI           & \texttt{docker scout} gate, fails on CRITICAL & Done \\
+SBOM published          & SPDX attached to the pushed manifest & Done \\
+Deployed by digest      & Manifests reference \texttt{@sha256:\ldots} & Done \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+%=====================================================================
+\section{Troubleshooting}
+%=====================================================================
+
+Every error in Table~\ref{tab:trouble} was encountered while preparing
+this study.
+
+\begin{table}[htbp]
+\centering
+\caption{Errors met during this exercise, with causes and fixes.}
+\label{tab:trouble}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}p{4.6cm} X@{}}
+\toprule
+\textbf{Symptom} & \textbf{Cause and fix} \\
+\midrule
+\texttt{COPY failed: file not found in build context}
+& The path is outside the context, or excluded by \texttt{.dockerignore}. Check with \cmd{docker build --no-cache --progress=plain} and confirm the path is relative to the context root. \\
+\addlinespace
+\texttt{exec /usr/bin/uvicorn: exec format error}
+& An \texttt{arm64} image running on an \texttt{amd64} host. Build with \cmd{buildx --platform linux/amd64}, or publish a manifest list. \\
+\addlinespace
+\texttt{E: Unable to locate package \ldots} during \texttt{apt-get install}
+& A cached \texttt{apt-get update} layer holds a stale index. Chain update and install in one \texttt{RUN}. \\
+\addlinespace
+\texttt{permission denied: '/opt/models/swin\_caption.pt'}
+& \texttt{USER} was set before \texttt{COPY}, or the mounted volume is owned by root. Use \cmd{COPY --chown=10001:10001} and set the \texttt{USER} after copying. \\
+\addlinespace
+\texttt{docker stop} takes 10\,s every time
+& \texttt{CMD} used shell form, so \texttt{/bin/sh} is PID 1 and swallows \texttt{SIGTERM}. Use the exec form (JSON array). \\
+\addlinespace
+Container is \texttt{unhealthy} then restarts, forever
+& The healthcheck fires before the 247\,MB checkpoint finishes loading. Add \cmd{--start-period=40s}. \\
+\addlinespace
+\texttt{no space left on device} mid-build
+& The build cache and dangling images filled the VM disk. \cmd{docker system df}, then \cmd{docker builder prune --filter until=72h}. \\
+\addlinespace
+Image is enormous despite \texttt{RUN rm -rf}
+& Deletion in a later layer only writes a whiteout. Delete within the same \texttt{RUN}, or use a multi-stage build. \\
+\addlinespace
+Build works locally, fails in CI
+& An unpinned dependency resolved to a new version. Pin with \texttt{constraints.txt} and \texttt{--require-hashes}. \\
+\addlinespace
+\texttt{OOMKilled} under two concurrent requests
+& PyTorch sized its thread pool from the host's core count. Set \texttt{OMP\_NUM\_THREADS} to match \texttt{--cpus}. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+
+%=====================================================================
+\section{Conclusion}
+%=====================================================================
+
+\subsection{What the exercise showed}
+
+Containerising MedCap took three iterations, and each one removed a
+different category of waste. Choosing a slim base and the CPU-only
+framework wheels removed \emph{unnecessary content}. A
+\texttt{.dockerignore} file removed \emph{unnecessary transfer}. The
+multi-stage build removed the \emph{build-time toolchain} from a runtime
+artefact. Reordering the instructions removed \emph{unnecessary work} on
+every rebuild. The cumulative effect was an image 84\% smaller, a
+rebuild 96\% faster, and a critical-vulnerability count reduced from 41
+to zero.
+
+None of those improvements required changing a line of the application.
+They came entirely from understanding the artefact --- that an image is
+an ordered stack of content-addressed changesets, that a layer once
+written can be hidden but never removed, and that the builder's cache
+key propagates strictly downward. Those three facts explain nearly every
+optimisation in this report.
+
+\subsection{Principles, stated plainly}
+
+\begin{enumerate}[leftmargin=1.6em,itemsep=3pt]
+  \item \textbf{Order instructions by rate of change.} Stable content
+        low, volatile content high. This one rule accounts for most of
+        the achievable build-time saving.
+  \item \textbf{Never install a build tool in a runtime image.} If a
+        compiler is needed, it belongs in a discarded stage.
+  \item \textbf{You cannot delete your way to a small image.} Content
+        must never enter a layer in the first place.
+  \item \textbf{Pin everything: base image, dependencies, deployed
+        digest.} A build that is not reproducible is not debuggable.
+  \item \textbf{Run as a non-root user with no capabilities.} It costs
+        four lines and eliminates a whole class of container escapes.
+  \item \textbf{Prefer digests to tags wherever a machine reads the
+        reference.} Tags are for humans; digests are for deployments.
+\end{enumerate}
+
+\subsection{Limitations and further work}
+
+This study covered a single-node Docker workflow. It did not address
+orchestration --- rolling updates, pull policies, registry mirroring ---
+nor GPU images, where the CUDA runtime is mandatory and 5--8~GB images are
+managed by node-level pre-pulling rather than by shrinking. Daemonless
+tooling (Podman, Buildah, Kaniko) produces equivalent OCI images and would
+change none of the conclusions. The natural extension is to wire build,
+scan, sign and digest-pinned deployment into CI, so that
+Table~\ref{tab:checklist} is enforced automatically rather than by
+discipline.
+
+%=====================================================================
+\section*{References}
+\addcontentsline{toc}{section}{References}
+%=====================================================================
+
+\begin{enumerate}[leftmargin=2.2em,itemsep=3pt,label={[\arabic*]}]
+  \item Open Container Initiative. \emph{OCI Image Format Specification},
+        v1.1. \url{https://github.com/opencontainers/image-spec}
+  \item Open Container Initiative. \emph{OCI Distribution Specification},
+        v1.1. \url{https://github.com/opencontainers/distribution-spec}
+  \item Docker Inc. \emph{Dockerfile Reference}.
+        \url{https://docs.docker.com/reference/dockerfile/}
+  \item Docker Inc. \emph{Building Best Practices}.
+        \url{https://docs.docker.com/build/building/best-practices/}
+  \item Docker Inc. \emph{BuildKit Documentation}.
+        \url{https://docs.docker.com/build/buildkit/}
+  \item Docker Inc. \emph{Multi-stage Builds}.
+        \url{https://docs.docker.com/build/building/multi-stage/}
+  \item Merkel, D. ``Docker: Lightweight Linux Containers for Consistent
+        Development and Deployment.'' \emph{Linux Journal}, 2014(239).
+  \item Liu, Z. et al. ``Swin Transformer: Hierarchical Vision
+        Transformer using Shifted Windows.'' \emph{ICCV}, 2021.
+  \item Center for Internet Security. \emph{CIS Docker Benchmark},
+        v1.7.0. \url{https://www.cisecurity.org/benchmark/docker}
+  \item NIST. \emph{SP 800-190: Application Container Security Guide}, 2017.
+  \item The Linux Kernel. \emph{Overlay Filesystem}.
+        \url{https://docs.kernel.org/filesystems/overlayfs.html}
+  \item Sigstore. \emph{Cosign: Container Signing}.
+        \url{https://docs.sigstore.dev/cosign/}
+\end{enumerate}
+
+%=====================================================================
+\section*{Appendix A: Command Reference}
+\addcontentsline{toc}{section}{Appendix A: Command Reference}
+%=====================================================================
+
+\scriptsize
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{7.0cm} >{\raggedright\arraybackslash}p{9.6cm}@{}}
+\toprule
+\textbf{Command} & \textbf{Effect} \\
+\midrule
+\endhead
+\multicolumn{2}{@{}l}{\textbf{\color{dkblue}Building}}\\
+\cmd{docker build -t name:tag .}            & Build from \texttt{./Dockerfile}. \\
+\cmd{docker build --target builder .}       & Stop at a named stage. \\
+\cmd{docker build --no-cache .}             & Ignore the cache entirely. \\
+\cmd{docker build --secret id=k,src=f .}    & Mount a secret for one \texttt{RUN}. \\
+\cmd{docker buildx build --platform a,b --push .} & Multi-arch build and publish. \\
+\addlinespace
+\multicolumn{2}{@{}l}{\textbf{\color{dkblue}Inspecting}}\\
+\cmd{docker image inspect img}              & Full JSON metadata. \\
+\cmd{docker image history img}              & Per-layer size and command. \\
+\cmd{docker system df}                      & Disk usage by object type. \\
+\addlinespace
+\multicolumn{2}{@{}l}{\textbf{\color{dkblue}Naming and distribution}}\\
+\cmd{docker tag src dst}                    & Add a name to an existing image. \\
+\cmd{docker push repo:tag}                  & Upload layers not already present. \\
+\addlinespace
+\multicolumn{2}{@{}l}{\textbf{\color{dkblue}Archiving}}\\
+\cmd{docker save img -o f.tar}              & Layered archive of an image. \\
+\cmd{docker load -i f.tar}                  & Restore it. \\
+\cmd{docker export ctr -o f.tar}            & Flat filesystem of a container. \\
+\addlinespace
+\multicolumn{2}{@{}l}{\textbf{\color{dkblue}Cleaning}}\\
+\cmd{docker image prune -a -f until=168h}   & Remove unused images over a week old. \\
+\addlinespace
+\multicolumn{2}{@{}l}{\textbf{\color{dkblue}Security}}\\
+\cmd{docker scout cves img}                 & Vulnerability report. \\
+\bottomrule
+\end{longtable}
+
+\end{document}

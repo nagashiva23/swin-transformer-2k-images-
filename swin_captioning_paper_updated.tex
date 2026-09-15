@@ -6,6 +6,7 @@
 \usepackage{xcolor}
 \usepackage{hyperref}
 \usepackage{booktabs}
+\usepackage{tabularx}
 
 \begin{document}
 
@@ -69,6 +70,89 @@ Captioning in the medical domain is complicated by the fact that clinically rele
 
 \subsection{Positioning of This Work}
 Taken together, the literature above shows a clear architectural progression -- from CNN-LSTM encoder--decoder captioning~\cite{vinyals2015show,xu2015show,ijraset2022}, to attention-augmented CNN decoders, to fully Transformer-based encoder--decoder captioning built on ViT- or Swin-style visual backbones~\cite{dosovitskiy2020vit,liu2021swin,lee2022cross,fadhilah2026transformer} -- almost universally under the assumption of large-scale pretraining or at minimum a pretrained visual backbone. Medical captioning work built on ROCO/ROCOv2~\cite{pelka2018roco,ruckert2024rocov2,ruckert2023imageclef} typically follows the same pattern, pairing a pretrained CNN encoder (e.g., DenseNet169) with an LSTM or Transformer decoder. This paper instead studies a harder and less-explored setting: a Swin Transformer encoder and Transformer decoder implemented entirely from first principles and trained with randomly initialized weights, without any pretrained backbone, transformers library, or third-party captioning framework. Because a randomly initialized attention-based encoder has none of the inductive bias that ImageNet or masked-image pretraining would normally supply, it is also more exposed to the kind of representation collapse this paper investigates -- a failure mode in which the encoder's output becomes nearly image-independent and the decoder falls back to generic, high-frequency captions -- and to training-recipe sensitivities (initialization, regularization, learning-rate scheduling) that pretrained backbones are comparatively robust to. This framing positions the present work as a transparency- and diagnostics-focused complement to the pretrained-backbone medical captioning literature, rather than a direct benchmark-accuracy competitor to it.
+
+\subsection{Literature Review Summary}
+\label{sec:related-summary}
+
+Table~\ref{tab:litreview} summarizes the eight papers most directly responsible for specific design decisions in this work, in the order they compose into the final system: the classical captioning paradigm and its attention mechanism~\cite{vinyals2015show,xu2015show}, the Transformer and vision-Transformer building blocks~\cite{vaswani2017attention,dosovitskiy2020vit,liu2021swin}, the dataset and benchmark this work is trained and measured against~\cite{ruckert2024rocov2,ruckert2023imageclef}, and the closest prior medical-domain Transformer captioning system~\cite{lee2022cross}.
+
+\begin{table*}[t]
+\centering
+\caption{Literature review: core contribution of each paper, its methodology, and its specific role in this work's design.}
+\label{tab:litreview}
+\small
+\begin{tabularx}{\textwidth}{@{}p{2.3cm}X X X@{}}
+\toprule
+\textbf{Paper} & \textbf{Core idea} & \textbf{Approach (what / how)} & \textbf{Role in this work} \\
+\midrule
+
+Vinyals et al., \emph{Show and Tell}~\cite{vinyals2015show} (2015)
+&
+Frame image captioning as end-to-end encoder--decoder learning, directly maximizing caption likelihood given an image -- borrowing the sequence-to-sequence framing from machine translation.
+&
+A CNN (Inception) pools the whole image into one global feature vector; an LSTM decoder is initialized from that vector and generates the caption word-by-word via teacher-forced cross-entropy training and beam search at inference.
+&
+Establishes the overall encoder$\to$decoder$\to$caption pipeline this work still follows (Fig.~1), but its single pooled vector is exactly the bottleneck we avoid: our encoder keeps 49 spatially distinct tokens instead of collapsing to one vector. \\
+
+Xu et al., \emph{Show, Attend and Tell}~\cite{xu2015show} (2015)
+&
+Fix Show-and-Tell's bottleneck by keeping the CNN's full spatial feature grid and letting the decoder compute a soft attention distribution over it at every step.
+&
+CNN feature map (e.g.\ $14\times14$) retained as a set of location vectors; the LSTM decoder scores each location against its hidden state (additive attention), takes a weighted sum as context for the next word.
+&
+Direct conceptual ancestor of our cross-attention sub-layer (Eq.~8.4--8.5): our decoder attends over the 49 Swin tokens exactly as theirs attends over CNN grid cells, reimplemented as Transformer scaled dot-product attention instead of additive LSTM attention. \\
+
+Vaswani et al., \emph{Attention Is All You Need}~\cite{vaswani2017attention} (2017)
+&
+Replace recurrence entirely with multi-head self-attention, enabling full parallelism and stronger long-range modeling.
+&
+Encoder--decoder Transformer: multi-head scaled dot-product attention, causal self-attention masking, encoder--decoder cross-attention, sinusoidal positional encoding, residual+LayerNorm blocks, position-wise FFN, label smoothing.
+&
+The direct blueprint for our entire decoder (Section~III-B): our masked self-attention, cross-attention, sinusoidal positional encoding, and label-smoothed cross-entropy loss are this paper's recipe, reimplemented from primitive \texttt{torch.nn} layers. \\
+
+Dosovitskiy et al., \emph{ViT}~\cite{dosovitskiy2020vit} (2020)
+&
+A pure Transformer, with no convolution, can do vision if an image is treated as a sequence of flattened patches.
+&
+Split image into fixed-size patches, linearly project each to an embedding (a conv with kernel=stride=patch\_size), add learned absolute position embeddings, feed through a standard global-attention Transformer encoder.
+&
+Source of our patch-embedding stage (Section~III-A.1) and its conv/linear-projection equivalence -- but we deliberately drop ViT's global attention and absolute position embeddings, since Swin (below) removes both. \\
+
+Liu et al., \emph{Swin Transformer}~\cite{liu2021swin} (2021)
+&
+Fix ViT's quadratic attention cost and single-scale output by windowing attention and shifting the window grid between blocks, with periodic patch merging for a CNN-like feature pyramid.
+&
+4-stage hierarchical encoder; alternating W-MSA/SW-MSA blocks per stage; learned relative position bias per window instead of absolute encoding; PatchMerging halves resolution and doubles channels between stages; DropPath regularization across blocks.
+&
+This is the encoder we implemented block-for-block (Section~III-A), including the exact Swin-T depths/heads/window configuration. Critically, DropPath and Liu et al.'s weight-init scheme were the two pieces of their recipe we initially omitted -- and re-adding them, per Section~III-D, was a large part of fixing the representation collapse in Section~V. \\
+
+Rückert et al., \emph{ROCOv2}~\cite{ruckert2024rocov2} (2024)
+&
+Provide a large-scale, updated, better-curated radiology image--caption(--concept) dataset built from PubMed Central Open Access figures.
+&
+$\sim$80K radiology images (CT, MRI, X-ray, ultrasound, angiography, \ldots), each with a caption mined from its source figure legend, plus UMLS concept annotations per image.
+&
+The dataset this entire project trains and evaluates on (Section~IV-A). Every vocabulary size, split size, and result in Section~V is a direct consequence of this dataset's structure; its unused concept CSVs motivate the auxiliary-loss item in future work. \\
+
+Rückert et al., \emph{ImageCLEFmedical 2023 Overview}~\cite{ruckert2023imageclef} (2023)
+&
+Define the shared-task benchmark for ROCOv2 caption generation and publish a reference baseline.
+&
+Pretrained DenseNet169 encoder $\to$ pooled feature $\to$ LSTM decoder, trained and scored on ROCOv2's official splits with BLEU/ROUGE/CIDEr-style metrics.
+&
+Our direct quantitative yardstick (Table~II): every BLEU/ROUGE/CIDEr number we report is compared against this baseline, with the pretrained-vs.-random-init asymmetry explicitly flagged rather than treated as like-for-like. \\
+
+Lee et al., \emph{Cross Encoder--Decoder Transformer}~\cite{lee2022cross} (2022)
+&
+Apply a Transformer encoder--decoder, rather than CNN-LSTM, to medical captioning, using a global-local visual extractor.
+&
+A pretrained backbone produces both a coarse whole-image descriptor and fine region-level descriptors; both are exposed to the decoder's cross-attention, letting each word draw on ``big picture'' or fine detail as needed.
+&
+Our closest architectural relative and our sharpest point of contrast: our single Swin hierarchy already yields coarse (Stage~4) and fine (Stage~1) features from one pyramid, substituting for their explicit dual-pathway extractor -- and unlike their (and nearly all prior) pretrained backbone, ours is trained entirely from random initialization, which is this paper's central research question. \\
+
+\bottomrule
+\end{tabularx}
+\end{table*}
 
 \section{Methodology}
 \label{sec:method}
@@ -162,52 +246,135 @@ We apply this protocol to the same two representative ROCOv2 test images through
 
 \subsection{Architecture Verification}
 \label{sec:results-verify}
-The ten-example overfitting test described in Section~\ref{sec:method-verify} passes cleanly both before and after the recipe fixes in Section~\ref{sec:method-training}. Training loss falls from an initial value of approximately 4.8 to below $0.002$ within 400 steps, and all 10 generated captions closely reproduce their corresponding ground-truth captions verbatim under greedy decoding. The encoder-to-decoder gradient-norm ratio, logged every 25 steps, settles into an approximate range of $0.25$--$1.0$ throughout training and does not collapse toward zero, indicating that gradients reach the encoder through cross-attention without vanishing. This result rules out an architectural or gradient-flow defect as the cause of the collapse observed in full training runs (Section~\ref{sec:results-collapse}) and confirms that the encoder--decoder wiring, causal and window masking, and target alignment described in Section~\ref{sec:method} are implemented correctly. Re-running the same test after applying the weight-initialization, DropPath, and learning-rate fixes reproduces the same qualitative result (loss below $0.002$, correct reproduction of all 10 captions), confirming that the fixes do not alter the model's basic learnability -- their effect is isolated to full-scale training behavior, examined next.
+The ten-example overfitting test described in Section~\ref{sec:method-verify} passes cleanly both before and after the recipe fixes in Section~\ref{sec:method-training}, summarized in Table~\ref{tab:overfit-test}. In both cases, training loss falls from an initial value of approximately 4.8 to $0.0010$ within 400 steps, and all 10 generated captions exactly reproduce their corresponding ground-truth captions under greedy decoding. The encoder-to-decoder gradient-norm ratio, logged every 25 steps, stays within an order of magnitude of 1 throughout training in both configurations and never collapses toward zero, indicating that gradients reach the encoder through cross-attention without vanishing. This result rules out an architectural or gradient-flow defect as the cause of the collapse observed in full training runs (Section~\ref{sec:results-collapse}) and confirms that the encoder--decoder wiring, causal and window masking, and target alignment described in Section~\ref{sec:method} are implemented correctly. The post-fix run's narrower and slightly lower ratio range ($0.23$--$0.73$ vs.\ $0.32$--$1.14$) shows the fixes measurably change training dynamics even at this tiny scale, without harming the model's basic learnability -- their effect on full-scale training is examined next.
 
-\subsection{Effect of the Corrected Recipe and Data Scale on Representation Collapse}
-\label{sec:results-collapse}
-
-\begin{table}[t]
+\begin{table}[htbp]
 \centering
-\caption{Within-image token cosine similarity (mean over all token pairs) on two representative test images, before and after the recipe fixes. A value near 1.0 indicates the 49 encoder tokens are nearly identical (collapsed); a low or negative value indicates the tokens carry distinguishable, spatially varying content.}
-\label{tab:collapse}
+\caption{Architecture verification using the 10-example overfitting test.}
+\label{tab:overfit-test}
 \small
-\begin{tabular}{lccc}
+\renewcommand{\arraystretch}{1.12}
+\begin{tabular}{@{}p{0.48\columnwidth}p{0.19\columnwidth}p{0.19\columnwidth}@{}}
 \toprule
-Image & Pre-fix & 2{,}000 imgs & 5{,}000 imgs \\
+\textbf{Metric} & \textbf{Pre-fix} & \textbf{Post-fix} \\
 \midrule
-Chest CT & 0.998 & 0.083 & 0.088 \\
-Angiogram & 0.9995 & 0.9995 & 0.956 \\
+Initial loss & 4.83 & 4.78 \\
+Final loss (step 400) & 0.0010 & 0.0010 \\
+Captions correctly reproduced & 10/10 & 10/10 \\
+enc/dec gradient-norm ratio range & 0.32--1.14 & 0.23--0.73 \\
 \bottomrule
 \end{tabular}
+
+\vspace{2pt}
+\footnotesize Post-fix = weight init + DropPath + lowered peak LR (Section~\ref{sec:method-training}).
 \end{table}
 
-The pre-fix checkpoint shows severe representation collapse by every diagnostic in Section~\ref{sec:experiments-collapse}: within-image token cosine similarity averages 0.998--0.9995 across both test images (95\%+ of token pairs exceed 0.99 similarity), only 0.225\% of the total variance in the $49\times768$ output tensor is attributable to differences \emph{across} the 49 token positions (the remaining 99.775\% is a constant pattern repeated at every position), and the synthetic-control experiment shows the chest CT image's representation is \emph{more} similar to pure random noise (cosine 0.9987) than to a second real image (cosine 0.9793) -- a direct, quantitative signature that the encoder is not using image content.
+\subsection{Training Trajectory}
+\label{sec:results-trajectory}
+Table~\ref{tab:training-trajectory} reports the best validation epoch and loss, the epoch at which early stopping triggered, and the final validation loss for the pre-fix checkpoint and the two corrected-recipe runs. Under the broken recipe, validation loss plateaued at epoch 3 (4.9970) and never improved again. Under the corrected recipe, both the 2,000- and 5,000-image runs continue improving two epochs further, reaching their best validation loss at epoch 5, before early stopping triggers at epoch 11 in both cases. This is the direct, measured consequence of the learning-rate fix described in Section~\ref{sec:method-training}: lowering the peak learning rate gave the cosine schedule room to keep improving past the point where the old schedule and patience window forced a stop.
 
-Table~\ref{tab:collapse} reports within-image token cosine similarity for the same two images under the corrected recipe at both training-set scales. The chest CT image shows a large, immediate improvement at both scales: token cosine similarity drops from 0.998 to approximately 0.08--0.09, meaning the 49 tokens now carry substantially different content depending on spatial position. The angiogram, by contrast, remains fully collapsed at 2,000 training images (0.9995, numerically unchanged from the pre-fix checkpoint) and only begins to improve at 5,000 training images (0.956). This asymmetry indicates that the severity of residual collapse under the corrected recipe is image-dependent -- plausibly related to the amount of visual contrast and structural detail available in the input, since the angiogram is a lower-contrast, less texturally varied image than the chest CT -- and that it responds to increased training-set scale rather than being fully resolved by the recipe fixes alone. The synthetic-control experiment shows a consistent pattern at both scales: uniform, content-free inputs (solid black, white, grey) still produce fully collapsed token representations (cosine $=1.0$), which is expected behavior for genuinely constant input rather than a defect, since a spatially uniform image provides no content for the encoder to differentiate; random noise input, in contrast, produces a non-collapsed but still not clearly content-discriminative representation, and the core diagnostic from the pre-fix checkpoint -- whether a real image's representation is closer to another real image than to noise -- continues to only partially resolve at these data scales, motivating the larger-scale training discussed as future work in Section~\ref{sec:conclusion}.
+\begin{table*}[t]
+\centering
+\caption{Training trajectory and early stopping behavior.}
+\label{tab:training-trajectory}
+\small
+\renewcommand{\arraystretch}{1.12}
+\begin{tabular}{@{}p{0.31\textwidth}ccccc@{}}
+\toprule
+\textbf{Config} & \textbf{Vocab} & \textbf{Best epoch} & \textbf{Best val\_loss} & \textbf{Stopped at epoch} & \textbf{Final val\_loss} \\
+\midrule
+Pre-fix (mislabeled ``15k'', actually $\sim$2k) & 2,682 & 3 & 4.9970 & --- & --- \\
+Fixed recipe, 2,000 imgs & 2,682 & 5 & 5.0269 & 11 & 5.5659 \\
+Fixed recipe, 5,000 imgs & 4,493 & 5 & 5.0497 & 11 & 5.6358 \\
+\bottomrule
+\end{tabular}
+\end{table*}
 
 \subsection{Caption Quality Metrics}
 \label{sec:results-metrics}
 
-\begin{table}[t]
+Table~\ref{tab:caption-quality} reports BLEU-1--4, ROUGE-L, CIDEr-D, the distinct-caption percentage, and top-template coverage across the three from-scratch checkpoints, alongside the pretrained-backbone baseline for scale. Two trends are consistent across both data scales relative to the pre-fix checkpoint: BLEU-1--3, distinct-caption percentage, and template diversity all improve monotonically with the corrected recipe and increasing data scale (distinct captions rise from 11.7\% to 18.3\% to 20.8\%; the most frequent templates shrink from covering the top 3 outputs at 77.5\% to the top 4 at 58.3\%), while BLEU-4, ROUGE-L, and CIDEr-D are slightly \emph{below} the pre-fix checkpoint's values at 2,000 images before partially recovering at 5,000. We attribute this to the pre-fix checkpoint's higher-order overlap scores being inflated by memorization: with only three generic caption templates covering the large majority of outputs, the model can accumulate exact higher-order n-gram matches whenever a reference caption happens to resemble one of those templates, which is a different phenomenon from genuinely modeling image content. The corrected-recipe checkpoints generate more varied captions (Section~\ref{sec:results-collapse} shows the encoder is genuinely differentiating between at least some images), at the cost of exact-phrase overlap with references while the model remains far from convergence at these small data scales. All three from-scratch configurations remain well below the pretrained CNN-LSTM baseline, which is expected given the baseline's pretrained DenseNet169 encoder and should not be read as a like-for-like performance comparison.
+
+\begin{table*}[t]
 \centering
-\caption{Caption-quality metrics on 120 ROCOv2 validation images. The pretrained ROCOv2 CNN-LSTM baseline~\cite{ruckert2023imageclef} uses a pretrained DenseNet169 encoder and is included for scale, not as a like-for-like comparison; all rows above it are trained entirely from randomly initialized weights.}
-\label{tab:metrics}
+\caption{Caption quality on 120 validation images.}
+\label{tab:caption-quality}
 \small
-\begin{tabular}{lccccc}
+\renewcommand{\arraystretch}{1.10}
+\begin{tabular}{@{}p{0.34\textwidth}cccc@{}}
 \toprule
-Model & B-1 & B-2 & B-3 & B-4 & Dist.\% \\
+\textbf{Metric} & \textbf{Pre-fix} & \textbf{2k (fixed)} & \textbf{5k (fixed)} & \textbf{CNN-LSTM baseline$^\ast$} \\
 \midrule
-Pre-fix & 0.077 & 0.043 & 0.024 & 0.014 & 11.7 \\
-Ours, 2k & 0.110 & 0.056 & 0.025 & 0.009 & 18.3 \\
-Ours, 5k & 0.132 & 0.063 & 0.030 & 0.010 & 20.8 \\
+BLEU-1 & 0.0774 & 0.1097 & \textbf{0.1320} & 0.586 \\
+BLEU-2 & 0.0431 & 0.0560 & \textbf{0.0631} & 0.498 \\
+BLEU-3 & 0.0236 & 0.0251 & \textbf{0.0302} & 0.347 \\
+BLEU-4 & \textbf{0.0141} & 0.0089 & 0.0103 & 0.127 \\
+ROUGE-L & \textbf{0.1483} & 0.1335 & 0.1335 & 0.453 \\
+CIDEr-D ($\times 10$ scale)$^\dagger$ & \textbf{0.1421} & 0.0927 & 0.1254 & 0.463 \\
+Distinct captions & 11.7\% (14/120) & 18.3\% (22/120) & \textbf{20.8\% (25/120)} & --- \\
+Top-template coverage & top 3 = 77.5\% & --- & top 4 = 58.3\% & --- \\
+\bottomrule
+\end{tabular}
+
+\vspace{2pt}
+\begin{minipage}{0.96\textwidth}
+\footnotesize
+$^\ast$ImageCLEFmedical 2023 DenseNet169+LSTM baseline~\cite{ruckert2023imageclef} -- pretrained encoder, not a like-for-like comparison; all rows above it are trained entirely from randomly initialized weights.
+
+$^\dagger$IDF computed on the eval set itself, non-standard scale -- compare within this table only, not to external CIDEr-D numbers.
+\end{minipage}
+\end{table*}
+
+\subsection{Representation-Collapse Diagnostics}
+\label{sec:results-collapse}
+
+Table~\ref{tab:representation-collapse} reports the full representation-health audit (Section~\ref{sec:experiments-collapse}) for the same two test images across all three checkpoints. The pre-fix checkpoint shows severe representation collapse by every diagnostic: within-image token cosine similarity of 0.998--0.9995 on both images (95\%+ of token pairs exceed 0.99 similarity), only 0.225\% of the total variance in the $49\times768$ output tensor attributable to differences \emph{across} the 49 token positions (the remaining 99.775\% is a constant pattern repeated at every position), and a synthetic-control result in which the chest CT image's representation is \emph{more} similar to pure random noise (cosine 0.9987) than to a second real image (cosine 0.9793) -- a direct, quantitative signature that the encoder is not using image content.
+
+Under the corrected recipe, the chest CT image shows a large, immediate improvement at both data scales: token cosine similarity drops from 0.998 to 0.08--0.09, meaning the 49 tokens now carry substantially different content depending on spatial position. The angiogram, by contrast, remains fully collapsed at 2,000 training images (0.9995, numerically unchanged from the pre-fix checkpoint) and only begins to improve at 5,000 training images (0.956). This asymmetry indicates that the severity of residual collapse under the corrected recipe is image-dependent -- plausibly related to the amount of visual contrast and structural detail available in the input, since the angiogram is a lower-contrast, less texturally varied image than the chest CT -- and that it responds to increased training-set scale rather than being fully resolved by the recipe fixes alone. The synthetic-control rows show a consistent pattern at both scales: uniform, content-free inputs (solid black, white, grey) still produce fully collapsed token representations (cosine $=1.0$), which is expected behavior for genuinely constant input rather than a defect, since a spatially uniform image provides no content for the encoder to differentiate. The cosine-to-noise and cosine-to-angiogram rows show the core pre-fix diagnostic -- whether the chest CT's representation is closer to another real image than to noise -- shifting substantially in absolute value at both data scales (moving from the tightly clustered, near-1.0 pre-fix regime to a much wider, partly negative range) without yet cleanly resolving in the intuitively ``correct'' direction, motivating the larger-scale training discussed as future work in Section~\ref{sec:conclusion}.
+
+\begin{table*}[t]
+\centering
+\caption{Representation-collapse diagnostics at the encoder output.}
+\label{tab:representation-collapse}
+\small
+\renewcommand{\arraystretch}{1.10}
+\begin{tabular}{@{}p{0.43\textwidth}ccc@{}}
+\toprule
+\textbf{Diagnostic} & \textbf{Pre-fix} & \textbf{2k (fixed)} & \textbf{5k (fixed)} \\
 \midrule
-CNN-LSTM~\cite{ruckert2023imageclef} & 0.586 & 0.498 & 0.347 & 0.127 & -- \\
+Within-image token cosine -- chest CT (``007757'') & 0.9977 & \textbf{0.0832} & 0.0884 \\
+Within-image token cosine -- angiogram (``000004'') & 0.9995 & 0.9995 (unchanged) & \textbf{0.9558} \\
+\% token pairs $\cos > 0.99$ -- chest CT & 96.2\% & 16.9\% & 8.5\% \\
+\% token pairs $\cos > 0.99$ -- angiogram & 100.0\% & 100.0\% & 42.4\% \\
+Variance across 49 tokens (of total) & 0.225\% & not re-measured & not re-measured \\
+$\cos$(chest CT, random noise) & 0.9987 & $-0.953$ & 0.857 \\
+$\cos$(chest CT, angiogram) & 0.9793 & $-0.959$ & $-0.920$ \\
+Uniform black/white/grey input & collapsed (1.0000) & collapsed (1.0000) & collapsed (1.0000) \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{Pre-fix-only Diagnostics}
+\label{sec:results-prefix}
+Table~\ref{tab:prefix-only-diagnostics} reports four additional diagnostics computed only for the pre-fix checkpoint as part of the original collapse audit and not re-measured after the fixes, since the representation-health and caption-quality tables above already establish the post-fix comparison. They are included for completeness: a validation cross-entropy of 4.26 (no label smoothing) corresponds to a perplexity of 70.8 and a teacher-forced token accuracy of only 27.35\%, and the mean generated caption length (10.0 tokens) is well under half the mean reference length (23.4 tokens) -- consistent with a decoder that has settled into short, generic templates rather than describing each image's actual content.
+
+\begin{table}[htbp]
+\centering
+\caption{Pre-fix-only diagnostics.}
+\label{tab:prefix-only-diagnostics}
+\small
+\renewcommand{\arraystretch}{1.12}
+\begin{tabular}{@{}p{0.5\columnwidth}p{0.34\columnwidth}@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Validation CE (no smoothing) & 4.2598 \\
+Perplexity & 70.8 \\
+Token accuracy (teacher-forced) & 27.35\% (713/2,607) \\
+Mean generated caption length & 10.0 tokens (ref.\ 23.4) \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-Table~\ref{tab:metrics} reports BLEU-1--4 and the distinct-caption percentage across the three from-scratch checkpoints, alongside the pretrained-backbone baseline for scale. ROUGE-L is essentially flat across all three from-scratch checkpoints (0.148 pre-fix, 0.134 at both 2,000 and 5,000 images); CIDEr-D (subject to the scale caveat in Section~\ref{sec:experiments-eval}) is 0.142 pre-fix, 0.093 at 2,000 images, and 0.125 at 5,000 images. Two trends are consistent across both data scales relative to the pre-fix checkpoint: BLEU-1--3 and the distinct-caption percentage improve monotonically with the corrected recipe and increasing data scale (distinct captions rise from 11.7\% to 18.3\% to 20.8\%), while BLEU-4, ROUGE-L, and CIDEr-D are slightly \emph{below} the pre-fix checkpoint's values at 2,000 images before partially recovering at 5,000. We attribute this to the pre-fix checkpoint's higher-order overlap scores being inflated by memorization: with only three generic caption templates covering 77.5\% of all 120 outputs, the model can accumulate exact higher-order n-gram matches whenever a reference caption happens to resemble one of those templates, which is a different phenomenon from genuinely modeling image content. The corrected-recipe checkpoints generate more varied captions (Section~\ref{sec:results-collapse} shows the encoder is genuinely differentiating between at least some images), at the cost of exact-phrase overlap with references while the model remains far from convergence at these small data scales. All three from-scratch configurations remain well below the pretrained CNN-LSTM baseline~\cite{ruckert2023imageclef}, which is expected given the baseline's pretrained DenseNet169 encoder and should not be read as a like-for-like performance comparison.
 
 \subsection{Discussion}
 \label{sec:results-discussion}
