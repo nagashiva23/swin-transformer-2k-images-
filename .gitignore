@@ -4,6 +4,16 @@ __pycache__/
 .idea/
 .DS_Store
 *.pt
+*.pth
+*.ckpt
+*.bin
+*.h5
+*.onnx
 *.tmp
 .~lock.*#
-*.pdf
+*.synctex.gz
+*.aux
+*.log
+*.out
+*.fls
+*.fdb_latexmk

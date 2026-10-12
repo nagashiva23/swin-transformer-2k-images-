@@ -41,8 +41,10 @@ Auto-detects ROCO root from common paths including:
 `C:\AIE Files\Projects\S5\Dl\DATA\rocov2`
 
 ```bash
-python train.py --epochs 8 --batch-size 16 --learning-rate 1e-4 --max-vocab 8000 --max-length 48
+python train.py --epochs 8 --batch-size 32 --learning-rate 1e-4 --encoder-learning-rate 1e-5 --max-vocab 8000 --max-length 48 --output-dir artifacts/cnn_lstm_roco_full
 ```
+
+The default run uses the full train and validation splits, and executes all 8 requested epochs. The pretrained ResNet-50 is initially frozen; its final residual stage is unfrozen after epoch 2 at a lower learning rate. CUDA mixed precision and validation-driven learning-rate reduction are enabled when CUDA is available. `best.pt` is selected by validation loss; `last.pt` records the last completed epoch. Training does not evaluate or select on the test split.
 
 Quick sanity run:
 
@@ -52,77 +54,54 @@ python train.py --epochs 1 --train-limit 2000 --valid-limit 500 --batch-size 8
 
 Outputs are saved in:
 
-- `artifacts/cnn_lstm_pipeline/last.pt`
-- `artifacts/cnn_lstm_pipeline/best.pt`
-- `artifacts/cnn_lstm_pipeline/step_XXXXXXX.pt`
-- `artifacts/cnn_lstm_pipeline/vocabulary.json`
+- `artifacts/cnn_lstm_roco_full/last.pt`
+- `artifacts/cnn_lstm_roco_full/best.pt`
+- `artifacts/cnn_lstm_roco_full/vocabulary.json`
+- `artifacts/cnn_lstm_roco_full/metrics.jsonl`
 
 ## Resume training
 
 ```bash
-python train.py --resume artifacts/cnn_lstm_pipeline/last.pt
+python train.py --epochs 12 --resume artifacts/cnn_lstm_roco_full/last.pt --output-dir artifacts/cnn_lstm_roco_full
 ```
 
 ## Evaluate on test split
 
 ```bash
-python evaluate.py --checkpoint artifacts/cnn_lstm_pipeline/best.pt
+python evaluate.py --checkpoint artifacts/cnn_lstm_roco_full/best.pt --batch-size 32 --output-json artifacts/cnn_lstm_roco_full/test_metrics.json --output-csv artifacts/cnn_lstm_roco_full/test_predictions.csv
 ```
 
-Optional JSON export:
-
-```bash
-python evaluate.py --checkpoint artifacts/cnn_lstm_pipeline/best.pt --output-json artifacts/cnn_lstm_pipeline/test_metrics.json
-```
+This evaluates the held-out test split and saves BLEU-1..4, METEOR, ROUGE-L, token cross-entropy, token accuracy, distinct-caption rate, evaluation-loop/model/generation time, device, and images per second. CUDA timings synchronize the GPU before reading the clock. Loop time includes test loading and generation but excludes checkpoint loading and corpus metric calculation, so timing varies with batch size, GPU load, storage, and worker count. The CSV contains image IDs with reference and generated captions. RMSE is not meaningful for text captions because token IDs are categories, not numeric measurements.
 
 ## Inference
 
 Use dataset sample by split/index:
 
 ```bash
-python inference.py --checkpoint artifacts/cnn_lstm_pipeline/best.pt --split test --index 0
+python inference.py --checkpoint artifacts/cnn_lstm_roco_full/best.pt --split test --index 0
 ```
 
 Use a specific image:
 
 ```bash
-python inference.py --checkpoint artifacts/cnn_lstm_pipeline/best.pt --image-path "C:\AIE Files\Projects\S5\Dl\DATA\rocov2\test_images\test\ROCOv2_2023_test_000001.jpg"
+python inference.py --checkpoint artifacts/cnn_lstm_roco_full/best.pt --image-path "C:\AIE Files\Projects\S5\Dl\DATA\rocov2\test_images\test\ROCOv2_2023_test_000001.jpg"
 ```
 
 ## Plotting & Visualization
 
-Generate publication-ready figures for training loss curves, NLP evaluation metrics, qualitative sample captions, and benchmark paper comparison:
+After evaluating the test split, generate training curves, test-metric plots, a qualitative image/caption grid, and a Markdown summary:
 
 ```bash
-python plot_results.py
+python plot_results.py --artifact-dir artifacts/cnn_lstm_roco_full --data-root "C:\AIE Files\Projects\S5\Dl\DATA\rocov2" --samples 6
 ```
 
-Generated plots are saved into `figures/`:
-- `figures/training_validation_loss.png`: Training & validation loss across epochs.
-- `figures/evaluation_metrics_bar.png`: BLEU-1..4, METEOR, ROUGE-L bar chart on test split.
-- `figures/paper_vs_our_model.png`: Comparative analysis against IJRASET 2022 paper (Xception+LSTM on Flickr8k vs ResNet-50+LSTM on ROCO v2).
-- `figures/qualitative_samples.png`: Grid of test sample images with Ground Truth vs Model Predicted captions.
+Generated files are saved under `artifacts/cnn_lstm_roco_full/`: `figures/training_validation_loss.png`, `figures/learning_rates.png` (when logged), `figures/test_caption_metrics.png`, `figures/test_computation_time.png`, `figures/qualitative_test_captions.png`, and `results_summary.md`. Run evaluation first so test plots and image examples use real held-out predictions.
 
-## Benchmark Comparison: IJRASET 2022 Paper
+## Comparison with the IJRASET 2022 paper
 
-Reference Paper: **"Image Captioning Generator Using CNN and LSTM"** (*IJRASET, June 2022*)
+The cited paper describes an Xception + LSTM system trained on Flickr8k (6,000 train, 1,000 validation, 1,000 test images). This project uses a ResNet-50 + LSTM on ROCO v2, a medical-image caption dataset. Because the domains, data splits, reference captions, and evaluation implementation differ, their caption scores are not a direct performance target. The paper's published result section does not provide a verifiable BLEU/METEOR/ROUGE score table, so this README does not claim numeric paper scores. Compare this run with other models evaluated on the same ROCO v2 split using the same caption preprocessing and metric implementation.
 
-| Metric / Dimension | IJRASET Paper (Kumar et al.) | Our Implementation |
-| :--- | :--- | :--- |
-| **Dataset & Domain** | Flickr8k (General Daily Domain) | ROCO v2 (Medical Radiology Domain) |
-| **CNN Feature Extractor** | Xception | ResNet-50 (`2048 -> 512` Projection) |
-| **Decoder Architecture** | LSTM | Embedding + Single-Layer LSTM |
-| **Vocabulary Size** | ~8,000 general words | 8,000 medical/radiology tokens |
-| **Test Set Size** | 1,000 test images | 9,927 test images |
-| **BLEU-1** | ~0.5300 | **0.2105** |
-| **BLEU-2** | ~0.3200 | **0.1098** |
-| **BLEU-3** | ~0.2100 | **0.0624** |
-| **BLEU-4** | ~0.1400 | **0.0377** |
-| **METEOR** | ~0.2400 | **0.1721** |
-| **ROUGE-L** | ~0.3500 | **0.1953** |
-| **Test Loss** | ~3.12 | **3.4785** |
-
-For a detailed comparative breakdown, visual graphs, and in-depth domain analysis, see [RESULTS_AND_COMPARISON.md](file:///C:/Users/Ravish/.gemini/antigravity/brain/08362b55-b6d2-4559-aadf-8210ab3793a4/RESULTS_AND_COMPARISON.md).
+Current run's held-out test scores are generated by `evaluate.py` and written to `artifacts/cnn_lstm_roco_full/test_metrics.json`; don't copy earlier hard-coded scores into a report. The selected checkpoint is based on validation loss, and the test split should be evaluated only after training/model selection is complete.
 
 ## Included sample images
 

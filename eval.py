@@ -32,6 +32,7 @@ from metrics import corpus_bleu, corpus_cider_d, corpus_rouge_l
 from vocab import Vocab
 
 MAX_LEN = 40
+DEFAULT_ROOT = os.environ.get("ROCO_ROOT", r"C:\AIE Files\Projects\S5\Dl\DATA\rocov2")
 DEVICE = torch.device(
     "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 )
@@ -79,13 +80,19 @@ def main():
     ap.add_argument("checkpoint")
     ap.add_argument("--split", choices=["train", "valid", "test"], default="test")
     ap.add_argument("--n", type=int, default=200, help="number of samples to evaluate, 0 = all")
-    ap.add_argument("--root", default="/Users/nagashiva/Downloads/rocov2")
+    ap.add_argument("--root", default=DEFAULT_ROOT)
     ap.add_argument("--batch_size", type=int, default=32, help="batch size for evaluation generation")
+    ap.add_argument("--beam", type=int, default=1, help="beam search width (1 = greedy, 3 or 5 = beam search)")
+    ap.add_argument("--out", help="optional CSV path for references and generated captions")
     args = ap.parse_args()
 
     csv_name, img_subdir = SPLIT_PATHS[args.split]
     csv_path = os.path.join(args.root, csv_name)
     images_dir = os.path.join(args.root, img_subdir)
+
+    for path in (csv_path, images_dir):
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Dataset path not found: {path}. Set ROCO_ROOT or pass --root.")
 
     print("Device:", DEVICE)
     ckpt = torch.load(args.checkpoint, map_location=DEVICE)
@@ -129,7 +136,10 @@ def main():
                 continue
 
             batch_imgs = torch.stack(image_tensors).to(DEVICE)
-            ids_batch = model.generate(batch_imgs, vocab, max_len=MAX_LEN, device=DEVICE)
+            if args.beam > 1:
+                ids_batch = model.generate_beam(batch_imgs, vocab, beam_width=args.beam, max_len=MAX_LEN, device=DEVICE)
+            else:
+                ids_batch = model.generate(batch_imgs, vocab, max_len=MAX_LEN, device=DEVICE)
 
             for row, ids in zip(valid_rows, ids_batch):
                 gen_caption = vocab.decode(ids.tolist())

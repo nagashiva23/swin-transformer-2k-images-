@@ -1,17 +1,4 @@
-"""
-BLOCK: Dataset
---------------
-Loads ROCOv2 images + captions from your local paths, subsampled to
-`max_samples` (default 2000) for a manageable training run.
-
-NOTE: Check your actual CSV column names first:
-    import pandas as pd
-    print(pd.read_csv("train_captions.csv").columns)
-Common ROCOv2 columns are something like ['ID', 'Caption'] -- adjust
-IMAGE_COL / CAPTION_COL below to match exactly what you see.
-"""
-
-import os
+﻿import os
 import pandas as pd
 from PIL import Image
 import torch
@@ -24,7 +11,7 @@ CAPTION_COL = "Caption"
 
 class ROCODataset(Dataset):
     def __init__(self, csv_path, images_dir, vocab, max_len=40,
-                 max_samples=2000, transform=None):
+                 max_samples=None, transform=None):
         df = pd.read_csv(csv_path)
         if max_samples is not None:
             df = df.iloc[:max_samples].reset_index(drop=True)
@@ -45,13 +32,13 @@ class ROCODataset(Dataset):
 
     def _resolve_image_path(self, image_id):
         image_id = str(image_id)
-        if os.path.splitext(image_id)[1]:   # already has an extension
+        if os.path.splitext(image_id)[1]:
             return os.path.join(self.images_dir, image_id)
         for ext in (".jpg", ".jpeg", ".png"):
             candidate = os.path.join(self.images_dir, image_id + ext)
             if os.path.exists(candidate):
                 return candidate
-        return os.path.join(self.images_dir, image_id + ".jpg")  # fallback
+        return os.path.join(self.images_dir, image_id + ".jpg")
 
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
@@ -64,14 +51,13 @@ class ROCODataset(Dataset):
             image = Image.new("RGB", (224, 224), color=0)
 
         image = self.transform(image)
-
         caption_ids = torch.tensor(
             self.vocab.encode(caption, self.max_len), dtype=torch.long
         )
         return image, caption_ids
 
 
-def build_vocab_from_csv(csv_path, min_freq=2, max_samples=2000):
+def build_vocab_from_csv(csv_path, min_freq=5, max_samples=None):
     df = pd.read_csv(csv_path)
     if max_samples is not None:
         df = df.iloc[:max_samples]

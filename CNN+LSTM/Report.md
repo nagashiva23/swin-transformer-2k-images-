@@ -11,7 +11,7 @@
 
 Automated caption generation for medical imaging bridges the gap between computer vision and clinical text generation. This report provides a complete theoretical, architectural, and empirical analysis of a Deep Convolutional Neural Network (CNN) combined with a Long Short-Term Memory (LSTM) recurrent neural network for medical image captioning. The architecture utilizes a pretrained **ResNet-50** feature extractor coupled via a 512-dimensional linear projection to a single-layer **LSTM** sequence decoder. The system was trained on **59,958 radiology images** from the ROCO v2 dataset, validated on **9,904 images**, and evaluated on an independent test set of **9,927 images**. 
 
-Empirical evaluation yields a final test Cross-Entropy Loss of **3.4785**, **BLEU-1** of **0.2105**, **BLEU-2** of **0.1098**, **BLEU-3** of **0.0624**, **BLEU-4** of **0.0377**, **METEOR** of **0.1721**, and **ROUGE-L** of **0.1953**. Furthermore, a comprehensive comparative study is conducted against the benchmark paper *"Image Captioning Generator Using CNN and LSTM"* (IJRASET, June 2022), analyzing architectural differences, domain complexity (general open-domain vs. specialized radiology domain), and metric variance.
+For the saved run represented by `artifacts/cnn_lstm_roco_full/test_metrics.json`, held-out test loss is **3.5419**, BLEU-1..4 are **0.1985 / 0.1046 / 0.0600 / 0.0366**, METEOR is **0.1734**, and ROUGE-L is **0.2029**. These are run-specific results; regenerate this report's figures and numbers after retraining and re-evaluating. Comparisons to results from another dataset or metric implementation are not direct performance comparisons.
 
 ---
 
@@ -177,14 +177,14 @@ Training was performed over 8 full epochs (59,958 training samples per epoch).
 
 | Epoch | Global Step | Training Loss | Validation Loss | Best Validation Loss |
 | :---: | :---: | :---: | :---: | :---: |
-| **1** | 3,748 | 4.8351 | 4.2607 | 4.2607 |
-| **2** | 7,496 | 4.0250 | 3.9073 | 3.9073 |
-| **3** | 11,244 | 3.7319 | 3.7358 | 3.7358 |
-| **4** | 14,992 | 3.5450 | 3.6283 | 3.6283 |
-| **5** | 18,740 | 3.4078 | 3.5592 | 3.5592 |
-| **6** | 22,488 | 3.2950 | 3.5099 | 3.5099 |
-| **7** | 26,236 | 3.2001 | 3.4770 | 3.4770 |
-| **8** | 29,984 | **3.1161** | **3.4544** | **3.4544** |
+| **1** | 1,874 | 5.1559 | 4.5370 | 4.5370 |
+| **2** | 3,748 | 4.3238 | 4.1428 | 4.1428 |
+| **3** | 5,622 | 4.0146 | 3.9260 | 3.9260 |
+| **4** | 7,496 | 3.8212 | 3.7938 | 3.7938 |
+| **5** | 9,370 | 3.6798 | 3.7005 | 3.7005 |
+| **6** | 11,244 | 3.5688 | 3.6310 | 3.6310 |
+| **7** | 13,118 | 3.4774 | 3.5751 | 3.5751 |
+| **8** | 14,992 | **3.4005** | **3.5341** | **3.5341** |
 
 ---
 
@@ -198,13 +198,13 @@ The best model checkpoint (`best.pt`, Epoch 8) was evaluated on the complete ROC
 
 | Metric | Full Test Score (9,927 samples) | Interpretation |
 | :--- | :---: | :--- |
-| **Test Loss** | **3.4785** | Masked Cross-Entropy loss |
-| **BLEU-1** | **0.2105** | Unigram keyword precision |
-| **BLEU-2** | **0.1098** | Bigram phrase precision |
-| **BLEU-3** | **0.0624** | Trigram sequence precision |
-| **BLEU-4** | **0.0377** | 4-gram exact phrase match precision |
-| **METEOR** | **0.1721** | Unigram precision/recall with stemming penalty |
-| **ROUGE-L** | **0.1953** | Longest Common Subsequence recall |
+| **Test Loss** | **3.5419** | Masked token cross-entropy |
+| **BLEU-1** | **0.1985** | Corpus unigram BLEU |
+| **BLEU-2** | **0.1046** | Corpus bigram BLEU |
+| **BLEU-3** | **0.0600** | Corpus trigram BLEU |
+| **BLEU-4** | **0.0366** | Corpus 4-gram BLEU |
+| **METEOR** | **0.1734** | Mean sentence METEOR |
+| **ROUGE-L** | **0.2029** | Mean sentence ROUGE-L F-score |
 
 ---
 
@@ -227,7 +227,7 @@ To contextualize these results, we perform a side-by-side comparison against the
 > *Authors:* M. Pranay Kumar, V. Snigdha, R. Nandini, Dr. B. Indira Reddy  
 > *Publication:* International Journal for Research in Applied Science & Engineering Technology (IJRASET), Vol. 10, Issue VI, June 2022.
 
-![Benchmark Comparison Chart](figures/paper_vs_our_model.png)
+No numerical paper-score chart is included because the cited paper does not publish a reproducible metric table.
 
 ### 5.1 Comparative Summary Table
 
@@ -240,34 +240,19 @@ To contextualize these results, we perform a side-by-side comparison against the
 | **Decoder Architecture** | LSTM Sequence Decoder | Embedding + Single-Layer LSTM |
 | **Vocabulary Size** | ~8,000 general words | 8,000 medical/radiology terms |
 | **Reference Captions / Img**| **5 captions** per image | **1 caption** per image |
-| **BLEU-1** | **~0.5300** | **0.2105** |
-| **BLEU-2** | **~0.3200** | **0.1098** |
-| **BLEU-3** | **~0.2100** | **0.0624** |
-| **BLEU-4** | **~0.1400** | **0.0377** |
-| **METEOR** | **~0.2400** | **0.1721** |
-| **ROUGE-L** | **~0.3500** | **0.1953** |
-| **Test Loss** | **~3.12** | **3.4785** |
+| **BLEU-1..4, METEOR, ROUGE-L, test loss** | Not reported as a metric table in the cited paper | See run output in `artifacts/cnn_lstm_roco_full/test_metrics.json` |
 
 ---
 
-### 5.2 Deep Technical Discussion: Why Do Metric Scores Differ?
+### 5.2 How to interpret the comparison
 
-1. **Domain Complexity & Linguistic Entropy**:
-   - **General Domain (Flickr8k)**: Captions describe common daily visual items ("a dog running in green grass"). Standard English words repeat across images, yielding higher n-gram overlap scores (BLEU-1 ~ 0.53).
-   - **Medical Domain (ROCO v2)**: Captions contain dense medical findings ("Digitally subtracted angiogram of the IMA demonstrated cessation of flow..."). Visual differences in radiology scans (e.g., subtle tissue contrast in X-rays or CT slices) are far harder for standard CNN backbones to discriminate than distinct color objects.
-
-2. **Reference Density**:
-   - Flickr8k provides **5 distinct ground-truth reference captions** for every image, significantly increasing the probability that a generated n-gram matches at least one reference.
-   - ROCO v2 provides only **1 reference caption** per image, creating a strict evaluation environment where valid alternative clinical phrases receive zero n-gram credit.
-
-3. **Encoder Feature Projection**:
-   - The IJRASET paper uses an **Xception** backbone. Our model employs **ResNet-50** with a linear bottleneck projection ($2048 \rightarrow 512$), reducing decoder parameter count (~237MB total weight size) while preserving fast inference latency.
+The paper describes Flickr8k and Xception + LSTM, while this project evaluates ResNet-50 + LSTM on ROCO v2. Flickr8k has five captions per image; this ROCO v2 split has one caption per row/image. The paper's result section does not publish a verifiable BLEU/METEOR/ROUGE score table. Therefore, numeric score differences cannot be attributed to dataset difficulty or model quality from this comparison. For a fair benchmark, evaluate a baseline and this model on the same ROCO v2 split, with identical references, tokenization, decoding, and metric code.
 
 ---
 
 ## 6. Conclusion & Future Roadmap
 
-This report demonstrated a functional CNN-LSTM medical image captioning pipeline on ROCO v2. The model achieved a validation loss of **3.4544** and demonstrated clinical vocabulary understanding on unseen radiology test images.
+This report documents a CNN-LSTM image captioning pipeline on ROCO v2. The current saved training log has best validation loss **3.5341** at epoch 8. Treat qualitative clinical correctness as unverified until the generated captions are reviewed by a qualified domain expert.
 
 ### Recommended Future Enhancements:
 1. **Encoder Unfreezing**: Unfreeze higher residual blocks of ResNet-50 (`--unfreeze-encoder`) during later epochs to fine-tune visual representations on medical domain features.

@@ -1,171 +1,108 @@
-# Swin Transformer Image Captioning — ROCOv2 (manual implementation)
+# Swin Transformer vs. CNN–LSTM for Radiology Image Captioning (ROCOv2)
 
+An end-to-end medical image captioning framework built and benchmarked on the **ROCOv2** dataset (59,958 training, 9,904 validation, and 9,927 test image–caption pairs). This repository investigates two distinct architectural paradigms:
+1. **Hierarchical Vision Transformer (`Swin-T` + 6-Layer Transformer Decoder)**: Processes $224\times224$ radiographs into 49 spatial visual tokens of dimension 768 via windowed/shifted-window self-attention (W-MSA / SW-MSA), decoded autoregressively with multi-head cross-attention and beam search.
+2. **Classical Pretrained Baseline (`CNN+LSTM/`)**: Pairs an ImageNet-pretrained ResNet-50 visual feature extractor with a recurrent LSTM decoder.
 
-Dataset link: https://www.kaggle.com/datasets/claudiopisa9884/roco-v2
+---
 
+## Key Architectural & Training Highlights
 
+- **Two-Phase Transfer Learning**:
+  - **Phase 1 (Epochs 1–2 — Decoder Warmup):** The Swin encoder is frozen while the 6-layer Transformer decoder warms up at `lr = 1.5e-4`, aligning cross-attention weights without distorting visual representations.
+  - **Phase 2 (Epochs 3+ — End-to-End Fine-Tuning):** Unfreezes the Swin backbone with differential learning rates (`1.5e-5` for the visual encoder, `1.0e-4` for the decoder) and proper weight-decay exclusion on 1-D norms, biases, and positional tables.
+- **Anti-Collapse Regularization**:
+  - **Vocabulary Pruning (`min_freq = 5`):** Filters rare OCR typos and noise, yielding a clean 8,729-token clinical vocabulary.
+  - **Word Dropout ($p = 0.10$) & Decoder Dropout ($0.20$):** Randomly masks input tokens with `<unk>` during teacher forcing to force the decoder to ground predictions in the 49 visual memory tokens.
+- **Beam Search Decoding**:
+  - Length-normalized beam search ($k = 3, 4$) with trigram repetition blocking.
 
+---
 
-Every component is written from scratch with plain `torch.nn` — no `timm`,
-no `transformers`, no pretrained weights, no third-party captioning repo.
+## Benchmark Results on ROCOv2
 
-## Files
+| Model Architecture | BLEU-1 | BLEU-2 | BLEU-3 | BLEU-4 | ROUGE-L | CIDEr-D | Distinct Captions |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Swin-T (From-Scratch, 2k subset)** | 0.1097 | 0.0560 | 0.0251 | 0.0089 | 0.1335 | 0.0927 | 18.3% |
+| **Swin-T (From-Scratch, 5k subset)** | 0.1320 | 0.0631 | 0.0302 | 0.0103 | 0.1335 | 0.1254 | 20.8% |
+| **Swin-T (From-Scratch, Full 60k)** | 0.1671 | 0.0871 | 0.0485 | 0.0289 | 0.1960 | — | — |
+| **CNN–LSTM Baseline (ResNet-50 + LSTM)** | **0.2105** | 0.1098 | 0.0624 | 0.0377 | 0.1953 | — | 44.0% |
+| **Swin-T (Pretrained + 2-Phase, Beam-4)** | 0.1833 | **0.1099** | **0.0644** | **0.0379** | **0.2160** | **0.3438** | **79.8%** |
 
-| File | What it is |
-|---|---|
-| `vocab.py` | Manual regex tokenizer + vocab builder |
-| `dataset.py` | ROCOv2 `Dataset` that loads images + captions |
-| `swin_model.py` | The Swin encoder: PatchEmbed → WindowAttention → SwinBlock (W-MSA/SW-MSA) → PatchMerging → BasicLayer stages → SwinEncoder. Includes weight init (`trunc_normal_`) and `DropPath` (stochastic depth, linearly increasing 0→0.1 across the 12 encoder blocks). |
-| `decoder_model.py` | The caption decoder: PositionalEncoding → manual MultiHeadAttention → DecoderLayer (masked self-attn + cross-attn + FFN) → CaptionDecoder |
-| `caption_model.py` | Wires encoder + decoder into `SwinCaptioningModel` (applies the model-wide weight init), plus greedy `.generate()` with trigram blocking (masking constant fixed to `-100.0`, matching the rest of the model) |
-| `train.py` | Training loop — `TRAIN_SAMPLES = 5000`, `VALID_SAMPLES = 2000`, `PEAK_LR = 2e-4`, 60 epochs w/ early stopping (patience 6) |
-| `generate.py` | Loads a checkpoint and captions a single image |
-| `metrics.py` | BLEU-1..4 / ROUGE-L / CIDEr-D, implemented from scratch (no nltk/pycocoevalcap needed) |
-| `eval.py` | Runs the model over a whole split (train/valid/test) and reports the metrics above, plus a caption-collapse check |
-| `tiny_overfit.py` | **New.** Mandatory architecture-verification test — trains on 10 fixed image/caption pairs for 400 steps; if loss doesn't collapse to ~0 and reproduce the captions, the defect is architectural, not a training-recipe issue |
-| `collapse_check.py` | **New.** Representation-health audit for a checkpoint: within-image token cosine similarity, variance decomposition, and a synthetic black/white/grey/noise control experiment |
+### Training Dynamics & Qualitative Predictions
 
-For the full audit trail (bug list, gradient-flow analysis, representation-collapse
-evidence, before/after metrics), see **`MODEL_VALIDATION_REPORT.md`** and
-**`FINDINGS.md`**.
+![Swin Training Curves](figures/swin_training_curves.png)
 
-## Dataset structure
+![Swin Qualitative Predictions](figures/swin_qualitative_predictions.png)
 
-The ROCOv2 export (`/Users/nagashiva/Downloads/rocov2`) is laid out as:
+---
 
-```
-rocov2/
-├── train_images/train/*.jpg          59,958 images  (ROCOv2_2023_train_XXXXXX.jpg)
-├── valid_images/valid/*.jpg           9,904 images  (ROCOv2_2023_valid_XXXXXX.jpg)
-├── test_images/test/*.jpg             9,927 images  (ROCOv2_2023_test_XXXXXX.jpg)
-│
-├── train_captions.csv                 59,958 rows — columns: ID, Caption
-├── valid_captions.csv                  9,904 rows — columns: ID, Caption
-├── test_captions.csv                   9,927 rows — columns: ID, Caption
-│
-├── train_concepts.csv / train_concepts_manual.csv    UMLS CUI concept labels per image (not used by any script here)
-├── valid_concepts.csv / valid_concepts_manual.csv
-├── test_concepts.csv  / test_concepts_manual.csv
-├── cui_mapping.csv                    CUI -> human-readable concept name lookup (not used here)
-├── license_information.csv            per-image source/license metadata (not used here)
-│
-└── swin_caption_*.pt                  checkpoints written here by train.py (swin_caption_best.pt, swin_caption_last.pt)
-```
+## Repository Structure
 
-Image ID ↔ caption row count matches exactly 1:1 for all three splits
-(verified: 59,958 / 9,904 / 9,927 jpg files line up with the CSV row
-counts). `dataset.py`'s `IMAGE_COL="ID"` / `CAPTION_COL="Caption"` already
-match this CSV schema — no column renaming needed.
-
-**What the code actually trains/evaluates on today** — this is the gap
-worth knowing about before your faculty meeting:
-
-| Split | Available on disk | Actually used by `train.py` |
-|---|---|---|
-| train | 59,958 | first 5,000 (`TRAIN_SAMPLES`) |
-| valid | 9,904 | first 2,000 (`VALID_SAMPLES`) |
-| test | 9,927 | used only for qualitative diagnostics (`collapse_check.py`), never for training/checkpoint selection |
-
-`eval.py` (added here) is what closes that last gap — it's the first
-script in the project that actually scores against `test_captions.csv`.
-
-The `*_concepts*.csv` / `cui_mapping.csv` files are part of the official
-ROCOv2 release (multi-label concept tags per image, used for the
-ImageCLEFmedical "concept detection" subtask) but nothing in this project
-reads them — they're only relevant if you later want to add a concept-tag
-auxiliary loss.
-
-## Before running
-
-Your CSV column names already match (`ID` / `Caption`) — no edit needed in
-`dataset.py` unless you're pointed at a different export.
-
-## Run
-
-```bash
-cd "swin 2k"
-pip install torch torchvision pandas pillow
-python train.py
+```text
+swin-transformer-2k-images/
+├── caption_model.py            # SwinCaptioningModel (Pretrained & Custom Swin + Beam Search)
+├── swin_model.py               # From-scratch Swin-T encoder implementation (W-MSA / SW-MSA)
+├── decoder_model.py            # 6-layer causal Transformer decoder with cross-attention
+├── dataset.py                  # ROCOv2 dataset loader and image augmentations
+├── vocab.py                    # Word-level clinical tokenizer and vocabulary builder
+├── train.py                    # Two-phase training loop, AMP mixed precision, live plotting
+├── eval.py                     # Corpus BLEU-1..4, ROUGE-L, CIDEr-D & diversity evaluator
+├── generate.py                 # Single-image caption generation utility
+├── metrics.py                  # Self-contained BLEU, ROUGE-L, and CIDEr-D implementations
+├── plot_training.py            # High-resolution loss, perplexity, and LR curve generator
+├── visualize_inferences.py     # Qualitative prediction card grid generator
+├── figures/                    # Generated training curves and qualitative sample grids
+├── artifacts/                  # Exported sample predictions CSV
+├── CNN+LSTM/                   # Pretrained ResNet-50 + LSTM baseline pipeline & results
+├── paper/                      # IEEE conference paper LaTeX source, figures, and compiled PDF
+└── report_latex/               # Detailed architectural derivation report
 ```
 
-Trains on the first 5,000 rows of `train_captions.csv` / `train_images`,
-validates on 2,000 rows of `valid_captions.csv` / `valid_images`, saves
-`swin_caption_best.pt` (best val loss) and `swin_caption_last.pt` into
-`/Users/nagashiva/Downloads/rocov2`.
+---
 
-To run the mandatory architecture-verification test before any full training run:
+## Dataset Configuration
 
-```bash
-python tiny_overfit.py
+By default, the scripts look for ROCOv2 at:
+```text
+C:\AIE Files\Projects\S5\Dl\DATA\rocov2
+```
+Expected structure:
+- `train_captions.csv`, `valid_captions.csv`, `test_captions.csv` (columns: `ID`, `Caption`)
+- `train_images\train\`, `valid_images\valid\`, `test_images\test\`
+
+*(To override the dataset path, set the `ROCO_ROOT` environment variable or pass `--root` to `eval.py`.)*
+
+---
+
+## How to Run
+
+### 1. Activate Environment
+```powershell
+conda activate rtx_gpu
+cd "C:\AIE Files\Projects\S5\Dl\swin-transformer-2k-images-"
 ```
 
-To audit a checkpoint's encoder for representation collapse:
-
-```bash
-python collapse_check.py /Users/nagashiva/Downloads/rocov2/swin_caption_best.pt test_007757 test_000004
+### 2. Train the Model (Two-Phase Pipeline)
+```powershell
+python train.py --epochs 30 --batch_size 32
 ```
+- Saves `swin_caption_best.pt` and `swin_caption_last.pt` in `ROCO_ROOT` (excluded from Git via `.gitignore` due to size).
+- Automatically updates `training_history.json`, `training_history.csv`, and `figures/swin_training_curves.png` after every epoch.
+- **Resume an interrupted run:**
+  ```powershell
+  python train.py --resume
+  ```
 
-To caption a single image:
-
-```bash
-python generate.py /path/to/image.jpg /Users/nagashiva/Downloads/rocov2/swin_caption_best.pt
+### 3. Evaluate on Held-Out Test Split
+```powershell
+python eval.py "C:\AIE Files\Projects\S5\Dl\DATA\rocov2\swin_caption_best.pt" --split test --n 500 --beam 4
 ```
+*(Pass `--n 0` to evaluate on all 9,927 test images.)*
 
-To score a checkpoint against a whole split with BLEU/ROUGE/CIDEr:
-
-```bash
-python eval.py /Users/nagashiva/Downloads/rocov2/swin_caption_best.pt --split test --n 200
+### 4. Generate Qualitative Inference Cards
+```powershell
+python visualize_inferences.py --n 6 --beam 3
 ```
+Saves the visual comparison grid to `figures/swin_qualitative_predictions.png` and tabular outputs to `artifacts/swin_sample_predictions.csv`.
 
-## Architecture summary
-
-**Encoder (Swin-T sized):** 224×224×3 image → patch_size 4 → 56×56 tokens
-(embed_dim 96) → 4 stages with depths `(2,2,6,2)` and heads `(3,6,12,24)`,
-window_size 7, each stage's odd blocks shift windows by `window_size // 2`.
-Patch merging halves resolution / doubles channels between stages, ending
-at 7×7×768 = 49 tokens.
-
-**Decoder:** standard 6-layer Transformer decoder — masked self-attention
-over the caption so far, cross-attention over the 49 Swin tokens, then a
-GELU feed-forward block — trained with teacher forcing and cross-entropy
-(padding ignored, label smoothing 0.1).
-
-## Status (see `MODEL_VALIDATION_REPORT.md` for the full audit)
-
-An early checkpoint showed severe **encoder representation collapse**: the
-49 output tokens were nearly identical regardless of image content, and the
-decoder converged to a handful of generic captions. A diagnostic audit
-separated this into two questions:
-
-1. **Is the architecture broken?** `tiny_overfit.py` (10 fixed image/caption
-   pairs, 400 steps) passes cleanly both before and after the fixes below —
-   loss falls to ~0.001 and all 10 captions are reproduced correctly. This
-   rules out a gradient-flow/masking/wiring defect.
-2. **Is the training recipe broken?** Yes — three concrete bugs, now fixed:
-   - No weight initialization beyond the relative-position-bias table —
-     fixed with `trunc_normal_(std=0.02)` on Linear weights and standard
-     LayerNorm init, applied via `self.apply(_init_weights)`.
-   - No stochastic depth (DropPath) in the encoder — added, linearly
-     increasing 0→0.1 across the 12 encoder blocks.
-   - `PEAK_LR = 5e-4` combined with `EARLY_STOP_PATIENCE = 6` meant training
-     always stopped right as the LR schedule peaked (best epoch = 3 in every
-     run). Lowered to `2e-4`.
-   - (Lower severity) `generate()`'s two anti-repetition guards used
-     `float("-inf")` instead of the `-100.0` convention used everywhere else
-     in the model — now consistent.
-
-**Result after fixes** (`collapse_check.py` + `eval.py`, see
-`MODEL_VALIDATION_REPORT.md` for full tables): representation collapse is
-reduced, monotonically with more training data, but not yet fully resolved
-— a high-contrast image (chest CT) shows large token-diversity gains at
-both 2,000 and 5,000 training images, while a lower-contrast image
-(angiogram) stays fully collapsed at 2,000 images and only starts improving
-at 5,000. Caption diversity and BLEU-1..3 improve monotonically with data
-scale; the model remains far below the pretrained-encoder CNN-LSTM baseline,
-as expected for a from-scratch encoder at this data scale.
-
-Open items: scale training further (10k–60k images) now that the recipe is
-verified; consider an auxiliary concept-classification loss
-(`train_concepts.csv` is present in the dataset but unused) to give the
-encoder a more direct gradient signal for low-contrast images; `irdid.ipynb.py`
-is a dead, unimported duplicate of `vocab.py` — safe to delete.

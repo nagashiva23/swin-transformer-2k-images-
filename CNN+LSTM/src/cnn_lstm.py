@@ -38,6 +38,8 @@ class LSTMDecoder(nn.Module):
         self.num_layers = num_layers
 
         self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=pad_id)
+        self.input_dropout = nn.Dropout(dropout)
+        self.output_dropout = nn.Dropout(dropout)
         self.lstm = nn.LSTM(
             input_size=embedding_dim,
             hidden_size=hidden_dim,
@@ -59,10 +61,10 @@ class LSTMDecoder(nn.Module):
 
     def forward(self, image_features: torch.Tensor, captions: torch.Tensor) -> torch.Tensor:
         inputs = captions[:, :-1]
-        embeddings = self.embedding(inputs)
+        embeddings = self.input_dropout(self.embedding(inputs))
         initial_state = self._initial_state(image_features)
         outputs, _ = self.lstm(embeddings, initial_state)
-        return self.output(outputs)
+        return self.output(self.output_dropout(outputs))
 
     @torch.no_grad()
     def greedy_decode(
@@ -78,9 +80,9 @@ class LSTMDecoder(nn.Module):
         generated = [current_tokens]
 
         for _ in range(max_length - 1):
-            embeddings = self.embedding(current_tokens[:, -1:])
+            embeddings = self.input_dropout(self.embedding(current_tokens[:, -1:]))
             outputs, (hidden, cell) = self.lstm(embeddings, (hidden, cell))
-            logits = self.output(outputs[:, -1, :])
+            logits = self.output(self.output_dropout(outputs[:, -1, :]))
             next_tokens = logits.argmax(dim=-1, keepdim=True)
             generated.append(next_tokens)
             current_tokens = torch.cat([current_tokens, next_tokens], dim=1)
@@ -113,6 +115,11 @@ class CNNLSTMCaptioner(nn.Module):
             pad_id=pad_id,
             dropout=decoder_dropout,
         )
+
+    def unfreeze_last_encoder_stage(self) -> None:
+        """Fine-tune ResNet layer4 while keeping earlier ImageNet features frozen."""
+        for parameter in self.encoder.backbone[7].parameters():
+            parameter.requires_grad = True
 
     def forward(self, images: torch.Tensor, captions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         image_features = self.encoder(images)

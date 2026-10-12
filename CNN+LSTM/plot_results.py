@@ -1,277 +1,209 @@
-"""
-Generate publication-quality graphs and qualitative visual results for CNN+LSTM Image Captioning,
-and compare results against the IJRASET 2022 reference paper ("Image Captioning Generator Using CNN and LSTM").
-"""
+"""Plot training/evaluation results and sample ROCO captions for CNN+LSTM."""
 
+from __future__ import annotations
+
+import argparse
+import csv
 import json
+import textwrap
 from pathlib import Path
+
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
-import numpy as np
-import pandas as pd
-import torch
 from PIL import Image
 
-# Import workspace modules for inference visualization
-from src.cnn_lstm import CNNLSTMCaptioner
-from src.vocabulary import Vocabulary
-from torchvision import transforms
 
-plt.style.use('seaborn-v0_8-whitegrid' if 'seaborn-v0_8-whitegrid' in plt.style.available else 'default')
-plt.rcParams['font.family'] = 'sans-serif'
-plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'Helvetica']
-
-OUTPUT_DIR = Path("figures")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-ARTIFACTS_DIR = Path("artifacts/cnn_lstm_pipeline")
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--artifact-dir", type=Path, default=Path("artifacts/cnn_lstm_roco_full"))
+    parser.add_argument("--data-root", type=Path, default=Path(r"C:\AIE Files\Projects\S5\Dl\DATA\rocov2"))
+    parser.add_argument("--samples", type=int, default=6)
+    return parser.parse_args()
 
 
-def plot_training_validation_loss():
-    """Plot Training and Validation Loss across epochs."""
-    metrics_file = ARTIFACTS_DIR / "metrics.jsonl"
-    if not metrics_file.is_file():
-        print(f"Metrics file not found at {metrics_file}")
-        return
+def read_jsonl(path: Path) -> list[dict]:
+    with path.open(encoding="utf-8") as file:
+        return [json.loads(line) for line in file if line.strip()]
 
-    epochs, train_losses, valid_losses = [], [], []
-    with metrics_file.open("r", encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            data = json.loads(line)
-            # Pick full epoch runs (train_size > 50000)
-            if data.get("train_size", 0) > 50000:
-                epochs.append(data["epoch"])
-                train_losses.append(data["train_loss"])
-                valid_losses.append(data["valid_loss"])
 
-    if not epochs:
-        print("No valid epoch data found in metrics.jsonl")
-        return
-
-    fig, ax = plt.subplots(figsize=(8, 5.5), dpi=300)
-
-    ax.plot(epochs, train_losses, 'o-', color='#1f77b4', linewidth=2.5, markersize=8, label='Training Loss')
-    ax.plot(epochs, valid_losses, 's--', color='#ff7f0e', linewidth=2.5, markersize=8, label='Validation Loss')
-
-    for e, tl, vl in zip(epochs, train_losses, valid_losses):
-        ax.annotate(f"{tl:.2f}", (e, tl), textcoords="offset points", xytext=(0, -15), ha='center', fontsize=9, color='#1f77b4', fontweight='bold')
-        ax.annotate(f"{vl:.2f}", (e, vl), textcoords="offset points", xytext=(0, 10), ha='center', fontsize=9, color='#ff7f0e', fontweight='bold')
-
-    ax.set_title("CNN + LSTM Training & Validation Loss Trajectory (ROCO v2)", fontsize=13, fontweight='bold', pad=15)
-    ax.set_xlabel("Epoch", fontsize=11, labelpad=8)
-    ax.set_ylabel("Cross-Entropy Loss", fontsize=11, labelpad=8)
+def plot_training(metrics: list[dict], output_dir: Path) -> None:
+    epochs = [row["epoch"] for row in metrics]
+    fig, ax = plt.subplots(figsize=(8, 5), dpi=180)
+    ax.plot(epochs, [row["train_loss"] for row in metrics], "o-", label="Train")
+    ax.plot(epochs, [row["valid_loss"] for row in metrics], "s-", label="Validation")
+    best = min(metrics, key=lambda row: row["valid_loss"])
+    ax.axvline(best["epoch"], color="green", linestyle="--", alpha=0.7,
+               label=f"Best validation epoch {best['epoch']}")
+    ax.set(title="CNN+LSTM caption loss", xlabel="Epoch", ylabel="Token cross-entropy loss")
     ax.set_xticks(epochs)
-    ax.grid(True, linestyle=':', alpha=0.6)
-    ax.legend(frameon=True, facecolor='white', framealpha=0.9, fontsize=10)
-
-    # Highlight min validation loss
-    best_idx = np.argmin(valid_losses)
-    best_epoch = epochs[best_idx]
-    best_val = valid_losses[best_idx]
-    ax.axvline(best_epoch, color='#2ca02c', linestyle=':', alpha=0.7, label=f'Best Epoch ({best_epoch})')
-
-    plt.tight_layout()
-    save_path = OUTPUT_DIR / "training_validation_loss.png"
-    fig.savefig(save_path, dpi=300)
+    ax.grid(alpha=0.25)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(output_dir / "training_validation_loss.png", bbox_inches="tight")
     plt.close(fig)
-    print(f"Saved: {save_path}")
+
+    if "learning_rate_head" in metrics[0]:
+        fig, ax = plt.subplots(figsize=(8, 4.5), dpi=180)
+        ax.plot(epochs, [row["learning_rate_head"] for row in metrics], "o-", label="Decoder/projection")
+        ax.plot(epochs, [row["learning_rate_encoder"] for row in metrics], "s-", label="ResNet encoder")
+        ax.set(title="Learning rates", xlabel="Epoch", ylabel="Learning rate")
+        ax.set_yscale("log")
+        ax.grid(alpha=0.25)
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(output_dir / "learning_rates.png", bbox_inches="tight")
+        plt.close(fig)
 
 
-def plot_evaluation_metrics():
-    """Plot bar chart of test set evaluation metrics."""
-    test_json = ARTIFACTS_DIR / "test_metrics.json"
-    if not test_json.is_file():
-        # Fallback default evaluation metrics from run
-        metrics = {
-            "bleu1": 0.2181,
-            "bleu2": 0.1130,
-            "bleu3": 0.0645,
-            "bleu4": 0.0391,
-            "meteor": 0.1773,
-            "rougeL": 0.2002,
-            "test_loss": 3.4672
-        }
-    else:
-        with test_json.open("r", encoding="utf-8") as f:
-            metrics = json.load(f)
-
-    metric_names = ['BLEU-1', 'BLEU-2', 'BLEU-3', 'BLEU-4', 'METEOR', 'ROUGE-L']
-    metric_values = [
-        metrics.get('bleu1', 0.0),
-        metrics.get('bleu2', 0.0),
-        metrics.get('bleu3', 0.0),
-        metrics.get('bleu4', 0.0),
-        metrics.get('meteor', 0.0),
-        metrics.get('rougeL', 0.0),
-    ]
-
-    colors = ['#2b5c8f', '#3670a6', '#4682b4', '#5c96cc', '#27ae60', '#e67e22']
-
-    fig, ax = plt.subplots(figsize=(8.5, 5.5), dpi=300)
-    bars = ax.bar(metric_names, metric_values, color=colors, width=0.55, edgecolor='black', linewidth=0.8)
-
-    for bar, val in zip(bars, metric_values):
-        yval = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2.0, yval + 0.005, f"{val:.4f}", ha='center', va='bottom', fontsize=10, fontweight='bold')
-
-    ax.set_ylim(0, max(metric_values) * 1.18)
-    ax.set_title("Evaluation Metrics on ROCO v2 Test Set (ResNet-50 + LSTM)", fontsize=13, fontweight='bold', pad=15)
-    ax.set_ylabel("Score", fontsize=11, labelpad=8)
-    ax.grid(axis='y', linestyle=':', alpha=0.7)
-
-    plt.tight_layout()
-    save_path = OUTPUT_DIR / "evaluation_metrics_bar.png"
-    fig.savefig(save_path, dpi=300)
+def plot_test_metrics(metrics: dict, output_dir: Path) -> None:
+    names = ["BLEU-1", "BLEU-2", "BLEU-3", "BLEU-4", "METEOR", "ROUGE-L"]
+    keys = ["bleu1", "bleu2", "bleu3", "bleu4", "meteor", "rougeL"]
+    values = [metrics.get(key) for key in keys]
+    names_and_values = [(name, value) for name, value in zip(names, values) if value is not None]
+    if not names_and_values:
+        return
+    labels, scores = zip(*names_and_values)
+    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=180)
+    bars = ax.bar(labels, scores, color="#3670a6")
+    ax.bar_label(bars, fmt="%.3f", padding=3)
+    ax.set(title="Caption metrics on held-out test set", ylabel="Score")
+    ax.set_ylim(0, max(scores) * 1.2 if max(scores) > 0 else 1)
+    ax.grid(axis="y", alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(output_dir / "test_caption_metrics.png", bbox_inches="tight")
     plt.close(fig)
-    print(f"Saved: {save_path}")
 
 
-def plot_paper_comparison():
-    """Plot comparative analysis graph between IJRASET Paper and Our Model."""
-    # Grouped Bar Plot for NLP Metrics Comparison
-    categories = ['BLEU-1', 'BLEU-2', 'BLEU-3', 'BLEU-4', 'METEOR', 'ROUGE-L']
-    paper_scores = [0.5300, 0.3200, 0.2100, 0.1400, 0.2400, 0.3500]
-
-    test_json = ARTIFACTS_DIR / "test_metrics.json"
-    if test_json.is_file():
-        with test_json.open("r", encoding="utf-8") as f:
-            m = json.load(f)
-        our_scores = [m.get('bleu1', 0.2181), m.get('bleu2', 0.1130), m.get('bleu3', 0.0645), m.get('bleu4', 0.0391), m.get('meteor', 0.1773), m.get('rougeL', 0.2002)]
-    else:
-        our_scores = [0.2181, 0.1130, 0.0645, 0.0391, 0.1773, 0.2002]
-
-    x = np.arange(len(categories))
-    width = 0.35
-
-    fig, ax = plt.subplots(figsize=(9, 5.8), dpi=300)
-    rects1 = ax.bar(x - width/2, paper_scores, width, label='IJRASET Paper (Xception + LSTM on Flickr8k)', color='#3498db', edgecolor='black', linewidth=0.8)
-    rects2 = ax.bar(x + width/2, our_scores, width, label='Our Model (ResNet-50 + LSTM on ROCO v2 Medical)', color='#e74c3c', edgecolor='black', linewidth=0.8)
-
-    for rect in rects1:
-        h = rect.get_height()
-        ax.annotate(f'{h:.2f}', xy=(rect.get_x() + rect.get_width() / 2, h), xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=8.5, fontweight='bold', color='#2980b9')
-
-    for rect in rects2:
-        h = rect.get_height()
-        ax.annotate(f'{h:.4f}', xy=(rect.get_x() + rect.get_width() / 2, h), xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=8.5, fontweight='bold', color='#c0392b')
-
-    ax.set_ylabel('Score', fontsize=11, labelpad=8)
-    ax.set_title('NLP Metric Comparison: Benchmark Paper (Flickr8k) vs Our Model (ROCO v2)', fontsize=12, fontweight='bold', pad=15)
-    ax.set_xticks(x)
-    ax.set_xticklabels(categories, fontsize=10)
-    ax.set_ylim(0, 0.65)
-    ax.legend(frameon=True, facecolor='white', framealpha=0.9, fontsize=9.5)
-    ax.grid(axis='y', linestyle=':', alpha=0.7)
-
-    plt.tight_layout()
-    save_path = OUTPUT_DIR / "paper_vs_our_model.png"
-    fig.savefig(save_path, dpi=300)
+def plot_timing(metrics: dict, output_dir: Path) -> None:
+    keys = ["evaluation_loop_seconds", "model_forward_seconds", "generation_seconds"]
+    labels = ["Evaluation loop", "Teacher-forced forward", "Caption generation"]
+    items = [(label, metrics.get(key)) for label, key in zip(labels, keys)]
+    items = [(label, value) for label, value in items if value is not None]
+    if not items:
+        return
+    labels, seconds = zip(*items)
+    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=180)
+    bars = ax.bar(labels, seconds, color=["#527a9e", "#36678c", "#e28e3c"][:len(labels)])
+    ax.bar_label(bars, fmt="%.1f s", padding=3)
+    ax.set(title=f"Test computation time ({metrics.get('device', 'device unknown')})", ylabel="Seconds")
+    ax.set_ylim(0, max(seconds) * 1.2 if max(seconds) > 0 else 1)
+    ax.grid(axis="y", alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(output_dir / "test_computation_time.png", bbox_inches="tight")
     plt.close(fig)
-    print(f"Saved: {save_path}")
 
 
-def generate_qualitative_sample_grid():
-    """Generate visual grid showing sample images, ground truth, and predicted captions."""
-    checkpoint_path = ARTIFACTS_DIR / "best.pt"
-    if not checkpoint_path.is_file():
-        print(f"Checkpoint not found at {checkpoint_path}")
+def find_test_image(data_root: Path, image_id: str) -> Path | None:
+    parent = data_root / "test_images"
+    image_dir = parent / "test" if (parent / "test").is_dir() else parent
+    for suffix in (".jpg", ".jpeg", ".png"):
+        path = image_dir / f"{image_id}{suffix}"
+        if path.is_file():
+            return path
+    return None
+
+
+def plot_examples(predictions_path: Path, data_root: Path, count: int, output_dir: Path) -> None:
+    with predictions_path.open(newline="", encoding="utf-8") as file:
+        examples = list(csv.DictReader(file))[:count]
+    if not examples:
+        print(f"No caption rows found in {predictions_path}")
         return
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-
-    vocab_payload = checkpoint.get("vocabulary")
-    if vocab_payload is None:
-        vocab_path = ARTIFACTS_DIR / "vocabulary.json"
-        vocabulary = Vocabulary.load(vocab_path)
-    else:
-        vocabulary = Vocabulary(
-            token_to_id=vocab_payload["token_to_id"],
-            id_to_token=vocab_payload["id_to_token"],
-            document_frequency=vocab_payload.get("document_frequency", {}),
+    columns = 2
+    rows = (len(examples) + columns - 1) // columns
+    fig, axes = plt.subplots(rows, columns, figsize=(13, rows * 5), dpi=150, squeeze=False)
+    for ax, item in zip(axes.flat, examples):
+        image_path = find_test_image(data_root, item["image_id"])
+        if image_path is None:
+            ax.text(0.5, 0.5, f"Image not found:\n{item['image_id']}", ha="center", va="center")
+            ax.axis("off")
+            continue
+        with Image.open(image_path) as image:
+            ax.imshow(image.convert("RGB"))
+        title = (
+            f"{item['image_id']}\n"
+            f"Reference: {textwrap.fill(item['reference'], 70)}\n"
+            f"Generated: {textwrap.fill(item['generated'], 70)}"
         )
-
-    model_config = checkpoint["model_config"]
-    model = CNNLSTMCaptioner(**model_config).to(device)
-    model.load_state_dict(checkpoint["model_state"])
-    model.eval()
-
-    # Load test split images
-    samples_dir = Path("samples")
-    sample_images = sorted(list(samples_dir.glob("*.jpg")))[:4]
-    if not sample_images:
-        print("No sample images found in samples/")
-        return
-
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
-
-    # Map ground truth captions for sample test images from test_captions.csv if available
-    csv_path = Path("C:/AIE Files/Projects/S5/Dl/DATA/rocov2/test_captions.csv")
-    gt_map = {}
-    if csv_path.is_file():
-        df = pd.read_csv(csv_path)
-        id_col = 'ID' if 'ID' in df.columns else 'id'
-        cap_col = 'Caption' if 'Caption' in df.columns else 'caption'
-        for _, row in df.iterrows():
-            gt_map[str(row[id_col]).strip()] = str(row[cap_col]).strip()
-
-    fig, axes = plt.subplots(2, 2, figsize=(11, 11), dpi=300)
-    axes = axes.flatten()
-
-    for idx, img_path in enumerate(sample_images):
-        raw_img = Image.open(img_path).convert("RGB")
-        img_tensor = transform(raw_img).unsqueeze(0).to(device)
-
-        with torch.no_grad():
-            gen_ids = model.generate(img_tensor, bos_id=vocabulary.bos_id, eos_id=vocabulary.eos_id, max_length=48)
-            pred_caption = vocabulary.decode(gen_ids[0].cpu().tolist())
-
-        img_id = img_path.stem
-        gt_caption = gt_map.get(img_id, "CT/MRI radiology scan showing anatomical structure.")
-
-        axes[idx].imshow(raw_img)
-        axes[idx].axis("off")
-
-        # Format long text wrapping
-        def wrap_text(text, max_chars=45):
-            words = text.split()
-            lines = []
-            curr = []
-            curr_len = 0
-            for w in words:
-                if curr_len + len(w) > max_chars:
-                    lines.append(" ".join(curr))
-                    curr = [w]
-                    curr_len = len(w)
-                else:
-                    curr.append(w)
-                    curr_len += len(w) + 1
-            if curr:
-                lines.append(" ".join(curr))
-            return "\n".join(lines)
-
-        gt_wrapped = wrap_text(gt_caption)
-        pred_wrapped = wrap_text(pred_caption)
-
-        axes[idx].set_title(f"Image ID: {img_id}\nGT: {gt_wrapped}\nPred: {pred_wrapped}", fontsize=9, pad=10, loc='left', bbox=dict(boxstyle="round,pad=0.4", facecolor="#f8f9fa", edgecolor="#cccccc", alpha=0.9))
-
-    plt.suptitle("Qualitative Model Predictions on Test Samples (ROCO v2)", fontsize=14, fontweight='bold', y=0.98)
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    save_path = OUTPUT_DIR / "qualitative_samples.png"
-    fig.savefig(save_path, dpi=300)
+        ax.set_title(title, fontsize=9, loc="left", pad=8)
+        ax.axis("off")
+    for ax in list(axes.flat)[len(examples):]:
+        ax.axis("off")
+    fig.suptitle("ROCOv2 test examples: reference vs generated caption", fontsize=14)
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    fig.savefig(output_dir / "qualitative_test_captions.png", bbox_inches="tight")
     plt.close(fig)
-    print(f"Saved: {save_path}")
+
+
+def write_summary(metrics: dict, output_path: Path) -> None:
+    fields = [
+        ("Test images", "samples"),
+        ("Device", "device"),
+        ("Evaluation loop time (s)", "evaluation_loop_seconds"),
+        ("Teacher-forced forward time (s)", "model_forward_seconds"),
+        ("Model compute time (s)", "model_compute_seconds"),
+        ("Caption generation time (s)", "generation_seconds"),
+        ("Evaluation throughput (images/s)", "images_per_second"),
+        ("Evaluation time per image (s)", "seconds_per_image"),
+        ("Token cross-entropy", "test_loss"),
+        ("Teacher-forced token accuracy", "teacher_forced_token_accuracy"),
+        ("Distinct caption rate", "distinct_caption_rate"),
+        ("BLEU-1", "bleu1"), ("BLEU-2", "bleu2"),
+        ("BLEU-3", "bleu3"), ("BLEU-4", "bleu4"),
+        ("METEOR", "meteor"), ("ROUGE-L", "rougeL"),
+    ]
+    lines = ["# CNN+LSTM test results", "", "| Metric | Value |", "|---|---:|"]
+    for label, key in fields:
+        value = metrics.get(key)
+        if value is None:
+            shown = "not available"
+        elif key in {"samples", "device"}:
+            shown = str(value)
+        else:
+            shown = f"{value:.3f}" if key.endswith("seconds") or key == "images_per_second" else f"{value:.4f}"
+        lines.append(f"| {label} | {shown} |")
+    lines.extend([
+        "",
+        "Evaluation loop time includes test data loading, model calls, and batch decoding; it excludes checkpoint loading and corpus metric calculation. Model compute and caption generation times are measured with CUDA synchronization when running on GPU. Results vary with GPU load, batch size, data storage, and worker count.",
+        "",
+        "RMSE is not applicable to generated captions: token IDs are categorical labels, so numeric distances between IDs have no meaning.",
+        "Teacher-forced token accuracy is included as a supplementary diagnostic; BLEU/METEOR/ROUGE and the example grid are more informative for caption quality.",
+    ])
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def main() -> None:
+    args = parse_args()
+    args.artifact_dir.mkdir(parents=True, exist_ok=True)
+    figures_dir = args.artifact_dir / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
+    history_path = args.artifact_dir / "metrics.jsonl"
+    if history_path.is_file():
+        history = read_jsonl(history_path)
+        if history:
+            plot_training(history, figures_dir)
+            print(f"Plotted {len(history)} completed training epochs.")
+    else:
+        print(f"Training history not found: {history_path}")
+
+    metrics_path = args.artifact_dir / "test_metrics.json"
+    predictions_path = args.artifact_dir / "test_predictions.csv"
+    if metrics_path.is_file():
+        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        plot_test_metrics(metrics, figures_dir)
+        plot_timing(metrics, figures_dir)
+        write_summary(metrics, args.artifact_dir / "results_summary.md")
+        print(f"Wrote metrics summary: {args.artifact_dir / 'results_summary.md'}")
+    else:
+        print(f"Test metrics not found: {metrics_path}; run evaluate.py first.")
+
+    if predictions_path.is_file():
+        plot_examples(predictions_path, args.data_root, args.samples, figures_dir)
+        print(f"Saved example grid in {figures_dir}")
+    else:
+        print(f"Test predictions not found: {predictions_path}; run evaluate.py with --output-csv first.")
 
 
 if __name__ == "__main__":
-    print("Generating figures...")
-    plot_training_validation_loss()
-    plot_evaluation_metrics()
-    plot_paper_comparison()
-    generate_qualitative_sample_grid()
-    print("All figures successfully created in figures/")
+    main()

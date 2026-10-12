@@ -10,14 +10,20 @@ from torchvision import transforms
 from .vocabulary import Vocabulary, read_captions
 
 
-def build_image_transform(image_size: int = 224) -> transforms.Compose:
-    return transforms.Compose(
-        [
+def build_image_transform(image_size: int = 224, augment: bool = False) -> transforms.Compose:
+    steps = []
+    if augment:
+        # Keep medical-image geometry intact; use only mild acquisition variation.
+        steps.extend([
+            transforms.RandomRotation(degrees=3),
+            transforms.ColorJitter(brightness=0.05, contrast=0.05),
+        ])
+    steps.extend([
             transforms.Resize((image_size, image_size)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ]
-    )
+        ])
+    return transforms.Compose(steps)
 
 
 class RoCoCaptionDataset(Dataset):
@@ -29,6 +35,7 @@ class RoCoCaptionDataset(Dataset):
         image_size: int = 224,
         max_length: int = 48,
         limit: int | None = None,
+        augment: bool = False,
     ) -> None:
         self.data_root = Path(data_root)
         self.split = split
@@ -37,7 +44,7 @@ class RoCoCaptionDataset(Dataset):
         self.rows = read_captions(self.data_root / f"{split}_captions.csv", limit)
         image_root = self.data_root / f"{split}_images"
         self.image_dir = image_root / split if (image_root / split).is_dir() else image_root
-        self.transform = build_image_transform(image_size)
+        self.transform = build_image_transform(image_size, augment=augment)
 
     def __len__(self) -> int:
         return len(self.rows)

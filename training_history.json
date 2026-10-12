@@ -1,0 +1,93 @@
+[
+  {
+    "epoch": 1,
+    "train_loss": 5.3449,
+    "val_loss": 4.8094,
+    "lr_backbone": 0.0,
+    "lr_decoder": 8.000000000000097e-05
+  },
+  {
+    "epoch": 2,
+    "train_loss": 4.7788,
+    "val_loss": 4.6881,
+    "lr_backbone": 0.0,
+    "lr_decoder": 1e-05
+  },
+  {
+    "epoch": 3,
+    "train_loss": 4.7236,
+    "val_loss": 4.6109,
+    "lr_backbone": 1.4968561049467782e-05,
+    "lr_decoder": 9.970132996992908e-05
+  },
+  {
+    "epoch": 4,
+    "train_loss": 4.5361,
+    "val_loss": 4.5633,
+    "lr_backbone": 1.487463956091225e-05,
+    "lr_decoder": 9.880907582863654e-05
+  },
+  {
+    "epoch": 5,
+    "train_loss": 4.4087,
+    "val_loss": 4.5558,
+    "lr_backbone": 1.4719416651546546e-05,
+    "lr_decoder": 9.733445818964774e-05
+  },
+  {
+    "epoch": 6,
+    "train_loss": 4.3043,
+    "val_loss": 4.5651,
+    "lr_backbone": 1.450484433951828e-05,
+    "lr_decoder": 9.529602122536499e-05
+  },
+  {
+    "epoch": 7,
+    "train_loss": 4.2098,
+    "val_loss": 4.5823,
+    "lr_backbone": 1.4233620996148988e-05,
+    "lr_decoder": 9.271939946334374e-05
+  },
+  {
+    "epoch": 8,
+    "train_loss": 4.1182,
+    "val_loss": 4.625,
+    "lr_backbone": 1.3909157412348962e-05,
+    "lr_decoder": 8.963699541723202e-05
+  },
+  {
+    "epoch": 9,
+    "train_loss": 4.031,
+    "val_loss": 4.6644,
+    "lr_backbone": 1.3535533905942713e-05,
+    "lr_decoder": 8.60875721063613e-05
+  },
+  {
+    "epoch": 10,
+    "train_loss": 3.9452,
+    "val_loss": 4.7286,
+    "lr_backbone": 1.3117449009304747e-05,
+    "lr_decoder": 8.211576558828994e-05
+  },
+  {
+    "epoch": 11,
+    "train_loss": 3.8601,
+    "val_loss": 4.7825,
+    "lr_backbone": 1.2660160382588721e-05,
+    "lr_decoder": 7.777152363447885e-05
+  },
+  {
+    "epoch": 12,
+    "train_loss": 3.7752,
+    "val_loss": 4.8491,
+    "lr_backbone": 1.2169418695599148e-05,
+    "lr_decoder": 7.310947760808442e-05
+  },
+  {
+    "epoch": 13,
+    "train_loss": 3.6939,
+    "val_loss": 4.9194,
+    "lr_backbone": 1.1651395309786374e-05,
+    "lr_decoder": 6.818825544287066e-05
+  }
+]

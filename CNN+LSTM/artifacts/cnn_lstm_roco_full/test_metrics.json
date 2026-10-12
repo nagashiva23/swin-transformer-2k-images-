@@ -1,0 +1,19 @@
+{
+  "test_loss": 3.4032617116449666,
+  "teacher_forced_token_accuracy": 0.3640049733513894,
+  "bleu1": 0.21990136328946583,
+  "bleu2": 0.11620007920523215,
+  "bleu3": 0.06724360746267498,
+  "bleu4": 0.04119441539155256,
+  "meteor": 0.18201458420634692,
+  "rougeL": 0.20430246110473543,
+  "distinct_caption_rate": 0.44001208824418253,
+  "samples": 9927,
+  "device": "cuda",
+  "evaluation_loop_seconds": 57.13053409999884,
+  "model_forward_seconds": 11.644286200009446,
+  "generation_seconds": 26.94838690001052,
+  "model_compute_seconds": 38.592673100019965,
+  "images_per_second": 173.75997190266423,
+  "seconds_per_image": 0.0057550653873273735
+}
