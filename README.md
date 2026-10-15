@@ -77,6 +77,14 @@ Expected structure:
 
 ## How to Run
 
+### Interactive Caption UI
+With the existing `rtx_gpu` Conda environment active, install the added UI dependency if needed and launch the local app from the repository root:
+```powershell
+python -m pip install "streamlit>=1.57.0"
+streamlit run .\app.py
+```
+The page is titled **Swin Transformer + CNN LSTM**. It includes 20 built-in ROCO test images with shuffle/select controls, drag-and-drop for other images, and parallel comparison. Full-width pipelines show Swin first and CNN+LSTM below it, with layer-level encoder stages, live stage timers, and animated connectors. Below the pipelines, both token confusion matrices and numeric caption metrics are aligned side by side. Per-image output includes generated captions and interactive timing/feature graphs. Reference captions are shown only for built-in test images. This captioning model does not predict diagnostic classes. The app does not save uploaded images or create CNN+LSTM result files outside `CNN+LSTM/result`.
+
 ### 1. Activate Environment
 ```powershell
 conda activate rtx_gpu

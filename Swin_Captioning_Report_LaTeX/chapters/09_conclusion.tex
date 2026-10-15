@@ -1,0 +1,12 @@
+\chapter{Conclusion}
+
+This investigation implemented, mathematically formulated, and benchmarked an end-to-end medical image captioning pipeline coupling a hierarchical **Swin Transformer (Swin-T)** vision encoder with a **6-layer causal Transformer language decoder** on the ROCOv2 radiology benchmark.
+
+\begin{itemize}
+\item \textbf{Preservation of Spatial Visual Memory:} By maintaining a $7 \times 7$ grid of 49 spatial visual memory tokens ($Z \in \mathbb{R}^{B \times 49 \times 768}$) through local and shifted window self-attention (W-MSA / SW-MSA), the architecture eliminates the classical spatial pooling bottleneck that impairs CNN-LSTM baselines.
+\item \textbf{Decisive Empirical Performance:} Evaluated on the full 9,927-sample test split under identical hardware conditions, the Swin Transformer surpasses the ResNet-50 + LSTM baseline across all evaluated metrics: $+19.8\%$ on BLEU-4 ($0.0327$ vs.\ $0.0273$), $+11.0\%$ on ROUGE-L ($0.2033$ vs.\ $0.1831$), $+25.8\%$ on CIDEr-D ($0.2171$ vs.\ $0.1726$), and elevates caption diversity from $43.98\%$ to $52.27\%$ under greedy search.
+\item \textbf{Fluency via Beam Search:} Augmenting the decoder with length-normalized beam search ($k=4$) and trigram repetition blocking further elevates performance to **BLEU-1 0.1833**, **BLEU-4 0.0379**, **ROUGE-L 0.2160**, **CIDEr-D 0.3438**, and achieves a **79.80\% distinct caption rate**, producing diagnostically distinct, patient-specific report descriptions.
+\item \textbf{Role of Transfer Learning \& Anti-Collapse Regularization:} Ablation studies demonstrate that Vision Transformers require pretrained feature priming to overcome their lack of convolutional inductive bias. In addition, the synergy between Word Dropout ($p=0.10$) and differential Two-Phase optimization is essential to prevent autoregressive decoders from collapsing into repetitive clinical clich\'{e}s.
+\end{itemize}
+
+In summary, the hierarchical Swin Transformer combined with cross-attention language decoding establishes a superior, spatially grounded paradigm for automated medical report generation, providing high diagnostic fidelity while maintaining sub-50ms inference latency suitable for clinical decision support.

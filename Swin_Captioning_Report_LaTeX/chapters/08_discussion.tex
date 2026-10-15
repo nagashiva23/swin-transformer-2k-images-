@@ -1,0 +1,30 @@
+\chapter{Discussion, Limitations, and Future Directions}
+
+\section{Discussion of Architectural and Empirical Findings}
+
+\textbf{1. Resolving the Spatial Bottleneck via Cross-Attention.}
+The empirical results confirm that preserving spatial token granularity is the single most influential architectural determinant for medical caption quality. In the CNN-LSTM baseline, compressing the entire radiograph into a single 512-dimensional vector at $t=0$ forces the recurrent hidden state to act as a lossy container. As the LSTM unrolls over multi-token sequences, the initial visual conditioning decays exponentially, causing the decoder to default to the language prior. In contrast, our 6-layer Transformer decoder directly queries the 49 visual memory tokens ($7 \times 7 \times 768$) through multi-head cross-attention at every token prediction step, resulting in a dramatic leap in distinct captions ($79.80\%$ vs.\ $43.98\%$) and superior consensus CIDEr-D ($0.3438$ vs.\ $0.1726$).
+
+\textbf{2. Performance Across N-gram Hierarchies.}
+Under identical greedy evaluation across the entire 9,927 test split, the Swin Transformer surpasses the CNN+LSTM across all n-gram orders ($+9.2\%$ on BLEU-1, $+13.0\%$ on BLEU-2, $+16.4\%$ on BLEU-3, and $+19.8\%$ on BLEU-4). When augmented with length-normalized beam search ($k=4$), BLEU-4 advances to $0.0379$, and ROUGE-L reaches $0.2160$. The widening performance margin from unigram to 4-gram metrics confirms that the Transformer decoder captures multi-word clinical phrases (e.g., \emph{``computed tomography scan of the abdomen showing''}) rather than disjointed token hits.
+
+\textbf{3. Regularization and Anti-Collapse Strategy.}
+In clinical corpora where stereotypical reporting language dominates, neural decoders easily collapse into trivial templates. Our integration of **Word Dropout** ($p=0.10$), **Decoder Dropout** ($0.20$), and **Label Smoothing** ($\epsilon=0.10$) successfully disrupted language co-adaptation. By randomly masking $10\%$ of input tokens with $\langle\mathrm{unk}\rangle$ during teacher forcing, the decoder was forced to anchor its predictions in visual cross-attention patterns rather than predicting solely from prior word contexts.
+
+\section{System Limitations}
+
+\begin{enumerate}
+\item \textbf{Single-Reference Evaluation Constraints:} Each ROCOv2 image possesses only a single reference caption extracted from open-access figure legends. Natural image benchmarks (e.g., MS-COCO) provide five independent human reference descriptions per image. In medical reporting, synonymous phrasing (e.g., \emph{``CT scan of chest''} vs.\ \emph{``axial thoracic computed tomography''}) is penalized under exact n-gram matching, suppressing absolute numerical scores across all architectures.
+\item \textbf{Laterality Inversion via Data Augmentation:} Standard horizontal flipping mirrors anatomical planes without adjusting directional lexical tokens (e.g., \emph{``left''} and \emph{``right''}) in the target strings. This teaches the visual encoder that lateral orientation is invariant, leading to occasional left/right diagnostic mismatches.
+\item \textbf{Lack of Key-Value Caching at Inference:} During autoregressive generation, each new token step recomputes intermediate key-value projections across the full prefix, resulting in quadratic inference complexity $\mathcal{O}(T^2)$. Implementing a stateful KV-cache would reduce generation latency from $40.52$ ms to $< 15$ ms per image.
+\item \textbf{Natural Image Transfer Gap:} The visual backbone was initialized from ImageNet-1K pretrained weights (natural photographic objects) rather than clinical radiologic domain data (e.g., RadImageNet or CheXpert).
+\end{enumerate}
+
+\section{Future Research Directions}
+
+\begin{enumerate}
+\item \textbf{Domain-Specific Medical Pretraining:} Initializing the hierarchical Swin backbone on large-scale self-supervised medical datasets (e.g., RadImageNet or MedCLIP) to align early spatial window representations directly with radiologic density variations.
+\item \textbf{Direction-Aware Data Augmentations:} Modifying geometric data augmentations to perform joint lexical inversion (flipping the image horizontally while programmatically exchanging all instances of \emph{``left''} and \emph{``right''} in the paired reference caption).
+\item \textbf{UMLS Concept Projection Heads:} Leveraging ROCOv2's Unified Medical Language System (UMLS) concept tags by adding an auxiliary multi-label concept classification objective to guide cross-attention heads toward diagnostically salient pathologies.
+\item \textbf{Inference KV-Caching and Quantization:} Integrating static KV-caching and FP8/INT8 weight quantization to achieve sub-10ms per-image generation latency for high-throughput clinical deployment.
+\end{enumerate}

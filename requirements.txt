@@ -5,6 +5,7 @@ torchvision>=0.17.0
 pillow>=10.0.0
 matplotlib>=3.8.0
 plotly>=5.20.0
+streamlit>=1.57.0
 
 # eval.py + metrics.py (BLEU-1..4 / ROUGE-L / CIDEr-D) need nothing beyond
 # what's already listed above -- the metrics are implemented from scratch

@@ -1,0 +1,158 @@
+% !TEX program = xelatex
+% Swin Transformer Image Captioning on ROCOv2 -- Project Review Report (version 2)
+% Compile with XeLaTeX (e.g. `latexmk -xelatex main.tex`, `tectonic main.tex`, or Overleaf with
+% Compiler = XeLaTeX). The chapter files in chapters/ are generated from the Markdown sources
+% by scripts/build_latex.py, but they are ordinary LaTeX and can be edited directly.
+\documentclass[11pt,a4paper,oneside]{report}
+
+% ---------------------------------------------------------------- page and fonts
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{fontspec}
+\usepackage{unicode-math}
+\setmainfont{texgyretermes}[Extension=.otf, UprightFont=*-regular, BoldFont=*-bold,
+  ItalicFont=*-italic, BoldItalicFont=*-bolditalic]
+\setsansfont{texgyreheros}[Extension=.otf, UprightFont=*-regular, BoldFont=*-bold,
+  ItalicFont=*-italic, BoldItalicFont=*-bolditalic]
+\setmonofont{texgyrecursor}[Extension=.otf, UprightFont=*-regular, BoldFont=*-bold,
+  ItalicFont=*-italic, BoldItalicFont=*-bolditalic, Scale=0.95]
+\setmathfont{latinmodern-math.otf}
+\usepackage{newunicodechar}
+\newunicodechar{→}{\ensuremath{\rightarrow}}
+\newunicodechar{≈}{\ensuremath{\approx}}
+\newunicodechar{−}{\ensuremath{-}}
+\newunicodechar{×}{\ensuremath{\times}}
+\newunicodechar{±}{\ensuremath{\pm}}
+\newunicodechar{⌊}{\ensuremath{\lfloor}}
+\newunicodechar{⌋}{\ensuremath{\rfloor}}
+\usepackage{setspace}
+\setstretch{1.15}
+\usepackage{parskip}
+\usepackage{microtype}
+\setlength{\emergencystretch}{2em}
+
+% ---------------------------------------------------------------- colours and headings
+\usepackage[table]{xcolor}
+\definecolor{navy}{HTML}{1F3A5F}
+\definecolor{accent}{HTML}{2F6DB5}
+\definecolor{muted}{HTML}{6B7280}
+\definecolor{boxorange}{HTML}{E07B24}\definecolor{fillorange}{HTML}{FDF1E6}
+\definecolor{boxgrey}{HTML}{6B7280}\definecolor{fillgrey}{HTML}{F3F4F6}
+\definecolor{boxblue}{HTML}{2F6DB5}\definecolor{fillblue}{HTML}{E8F0FA}
+\definecolor{boxpurple}{HTML}{7A4FB5}\definecolor{fillpurple}{HTML}{F3EEFA}
+
+\usepackage{titlesec}
+\titleformat{\chapter}[hang]{\sffamily\bfseries\huge\color{navy}\raggedright}{\thechapter}{0.6em}{}
+\titlespacing*{\chapter}{0pt}{0pt}{14pt}
+\titleformat{\section}{\sffamily\bfseries\Large\color{navy}\raggedright}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\sffamily\bfseries\large\color{accent}\raggedright}{\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{16pt}{6pt}
+\titlespacing*{\subsection}{0pt}{12pt}{4pt}
+\setcounter{secnumdepth}{2}
+\setcounter{tocdepth}{1}
+
+% ---------------------------------------------------------------- figures, tables, captions
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{needspace}
+\usepackage{longtable,booktabs,array,calc}
+\newcounter{none} % pandoc uses \LTcaptype{none} for tables without a caption
+\usepackage[font={small,sf},labelfont=bf,labelsep=colon,skip=6pt]{caption}
+\makeatletter
+\newsavebox\pandoc@box
+\newcommand*\pandocbounded[1]{%
+  \sbox\pandoc@box{#1}%
+  \Gscale@div\@tempa{\textheight}{\dimexpr\ht\pandoc@box+\dp\pandoc@box\relax}%
+  \Gscale@div\@tempb{\linewidth}{\wd\pandoc@box}%
+  \ifdim\@tempb\p@<\@tempa\p@\let\@tempa\@tempb\fi
+  \ifdim\@tempa\p@<\p@\scalebox{\@tempa}{\usebox\pandoc@box}%
+  \else\usebox{\pandoc@box}%
+  \fi}
+\def\fps@figure{!htbp}
+\makeatother
+\providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setlength{\LTpre}{6pt}\setlength{\LTpost}{6pt}
+\renewcommand{\arraystretch}{1.15}
+
+% ---------------------------------------------------------------- concept boxes
+\usepackage[breakable]{tcolorbox}
+\newcommand{\conceptbox}[3]{%
+  \newtcolorbox{#1}{breakable, colback=#3, colframe=#2, boxrule=0pt, leftrule=3pt,
+    arc=0pt, outer arc=0pt, left=8pt, right=8pt, top=5pt, bottom=5pt, before skip=8pt,
+    after skip=10pt, fontupper=\small}}
+\conceptbox{intuitionbox}{boxorange}{fillorange}
+\conceptbox{examplebox}{boxgrey}{fillgrey}
+\conceptbox{takeawaybox}{boxblue}{fillblue}
+\conceptbox{mathbox}{boxpurple}{fillpurple}
+
+% ---------------------------------------------------------------- links
+\usepackage[hidelinks]{hyperref}
+\hypersetup{pdftitle={Swin Transformer Image Captioning on ROCOv2},
+  pdfauthor={Dokku Naga Shiva, Rajashree T, Ravishanmugam K, Sharvesh Sivagnanam}}
+
+\begin{document}
+
+% ---------------------------------------------------------------- cover page
+\begin{titlepage}
+\centering\sffamily
+
+\vspace*{0.5cm}
+\begin{center}
+  % Scales cleanly to 65% of the text width without distorting aspect ratio
+  \includegraphics[width=0.65\textwidth,keepaspectratio]{figures/logo.png}
+\end{center}
+\vspace{1.5cm}
+
+{\color{muted}\bfseries\small DEEP LEARNING \textperiodcentered{} PROJECT REVIEW REPORT\par}
+\vspace{16pt}
+
+{\fontsize{24}{30}\selectfont\bfseries\color{navy} Swin Transformer Image Captioning\\ on ROCOv2\par}
+\vspace{12pt}
+{\large\color{accent} Hierarchical Shifted-Window Vision Transformer and Causal Language Decoding\\ for Automated Radiology Report Generation\par}
+
+\vspace{2.2cm}
+
+{\small\bfseries\color{muted} SUBMITTED BY\par}
+\vspace{10pt}
+{\rmfamily\normalsize
+\begin{tabular}{cc}
+\textbf{Dokku Naga Shiva} & \textsf{CB.SC.U4AIE24315} \\[4pt]
+\textbf{Rajashree T} & \textsf{CB.SC.U4AIE24346} \\[4pt]
+\textbf{Ravishanmugam K} & \textsf{CB.SC.U4AIE24347} \\[4pt]
+\textbf{Sharvesh Sivagnanam} & \textsf{CB.SC.U4AIE24355} \\
+\end{tabular}\par}
+
+\vspace{1.8cm}
+
+{\small\bfseries\color{muted} UNDER THE GUIDANCE OF\par}
+\vspace{6pt}
+{\rmfamily\large\bfseries Dr. Mithun Kumar Kar\par}
+\vspace{2pt}
+{\rmfamily\small\color{muted} Assistant Professor, Department of Artificial Intelligence\par}
+
+\vfill
+{\rmfamily\normalsize\color{muted} Amrita Vishwa Vidyapeetham, Coimbatore \textperiodcentered{} October 2026\par}
+\end{titlepage}
+\setcounter{page}{2}
+
+% ---------------------------------------------------------------- front matter
+\input{chapters/00_abstract}
+\cleardoublepage
+\tableofcontents
+
+% ---------------------------------------------------------------- chapters
+\input{chapters/01_introduction}
+\input{chapters/02_dataset}
+\input{chapters/03a_overview}
+\input{chapters/03b_encoder}
+\input{chapters/03c_decoder}
+\input{chapters/03d_training}
+\input{chapters/04_baseline}
+\input{chapters/05_metrics}
+\input{chapters/06_results}
+\input{chapters/07_further_results}
+\input{chapters/08_discussion}
+\input{chapters/09_conclusion}
+\input{chapters/10_references}
+
+\end{document}

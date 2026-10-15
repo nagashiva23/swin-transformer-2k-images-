@@ -1,0 +1,105 @@
+\chapter{Evaluation Metrics}
+
+Each generated caption is compared with the single reference caption of its image. We use the standard captioning metrics. All are computed after the same tokenisation as in Section 2.3, and all range from 0 (no overlap) upwards (higher is better).
+
+Throughout this chapter, one worked example is scored by hand and checked with the project's \texttt{metrics.py}:
+
+\needspace{12\baselineskip}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 2\tabcolsep) * \real{0.5000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 2\tabcolsep) * \real{0.5000}}@{}}
+\caption{The worked example used in this chapter.}\tabularnewline
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Caption (10 words each)
+\end{minipage} \\
+\midrule\noalign{}
+\endfirsthead
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Caption (10 words each)
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Reference & \emph{ct chest axial view showing a huge ascending aortic aneurysm} \\
+Generated & \emph{axial ct of the chest showing a large aortic aneurysm} \\
+\end{longtable}
+
+\section{BLEU-1 to BLEU-4}
+
+\textbf{What it measures.} BLEU {[}21{]} measures how many of the generated caption's word groups (\emph{n-grams}: single words, word pairs, triples and quadruples) also appear in the reference. Counts are clipped, so repeating a correct word does not help. A brevity penalty BP punishes captions that are shorter than the references.
+
+\[p_n = \frac{\sum \min\left(\text{count}_{\text{gen}}(g),\ \text{count}_{\text{ref}}(g)\right)}{\sum \text{count}_{\text{gen}}(g)}, \qquad \text{BLEU-}N = \text{BP} \cdot \exp\left(\frac{1}{N}\sum_{n=1}^{N} \log p_n\right) \tag{5.1}\]
+
+where \(g\) ranges over the n-grams of the generated caption, and \(\text{BP} = \min\left(1,\allowbreak\ e^{\,1 - r/c}\right)\) for reference length \(r\) and generated length \(c\).
+
+\begin{examplebox}
+
+\textbf{Worked example.}
+
+\textbf{Single words.} 7 of the 10 generated words appear in the reference (axial, ct, chest, showing, a, aortic, aneurysm), so \(p_1 = 0.70\).
+
+\textbf{Word pairs.} 2 of 9 match (``showing a'', ``aortic aneurysm''), so \(p_2 = 0.22\).
+
+\textbf{Triples and quadruples.} None match, so \(p_3 = p_4 = 0\).
+
+\textbf{Scores.} The two captions are the same length, so \(\text{BP} = 1\). BLEU-1 \(= 0.70\) and BLEU-2 \(= \sqrt{0.70 \times 0.22} = 0.39\). For a single caption BLEU-3 and BLEU-4 are 0; on the full test set, the counts of all 9,927 captions are added together first, so these scores are not zero.
+
+\end{examplebox}
+
+\section{ROUGE-L}
+
+\textbf{What it measures.} ROUGE-L {[}22{]} finds the \textbf{longest common subsequence} (LCS): the longest list of words that appears in both captions in the same order, not necessarily side by side. It rewards captions that get the overall word order right.
+
+\[R = \frac{\text{LCS}}{|\text{ref}|}, \qquad P = \frac{\text{LCS}}{|\text{gen}|}, \qquad \text{ROUGE-L} = \frac{(1 + \beta^2)\, R\, P}{R + \beta^2 P}, \quad \beta = 1.2 \tag{5.2}\]
+
+where \(R\) is recall (how much of the reference was covered) and \(P\) is precision (how much of the generated caption was correct).
+
+\begin{examplebox}
+
+\textbf{Worked example.} The longest common subsequence is \emph{ct chest showing a aortic aneurysm}: 6 words. So \(R = P = 6/10\), and ROUGE-L \(= 0.60\).
+
+\end{examplebox}
+
+\section{CIDEr-D}
+
+\textbf{What it measures.} CIDEr-D {[}23{]} weights every n-gram by \textbf{TF-IDF}: it multiplies how often the n-gram appears in this caption by how rare it is across all reference captions. Matching a rare clinical word therefore counts far more than matching ``the''. It then takes the cosine similarity of the two weighted vectors for \(n = 1\) to \(4\), applies a Gaussian penalty for length differences, and multiplies by 10:
+
+\[\text{CIDEr-D} = \frac{10}{4}\sum_{n=1}^{4} \cos\left(\boldsymbol{g}_n^{\text{gen}},\ \boldsymbol{g}_n^{\text{ref}}\right) \cdot e^{-\frac{(c - r)^2}{2\sigma^2}}, \qquad \text{IDF}(g) = \log\frac{N}{\text{df}(g)} \tag{5.3}\]
+
+where \(\boldsymbol{g}_n\) is the TF-IDF vector of n-grams of length \(n\), \(N\) is the number of reference captions, df is the number of references containing \(g\), and \(\sigma = 6\).
+
+\begin{examplebox}
+
+\textbf{Worked example.}
+
+\textbf{Word rarity.} Counted over the 9,927 test references, the IDF values are: ``the'' 0.41, ``chest'' 2.01, ``aortic'' 4.02 and ``aneurysm'' 4.71.
+
+\textbf{Score.} For our pair, the TF-IDF cosine similarity is 0.59 for single words and 0.24 for word pairs, giving CIDEr-D \(= 10 \times (0.59 + 0.24)/4 = 2.07\).
+
+\end{examplebox}
+
+\section{METEOR}
+
+METEOR {[}24{]} matches words between the two captions, including word stems and synonyms in the original metric. It combines precision and recall with more weight on recall, and applies a penalty when the matched words are scattered in many small chunks rather than in long runs. We report it for the CNN + LSTM baseline and the from-scratch Swin model.
+
+\section{Distinct captions}
+
+\textbf{What it measures.} The share of test images that receive a caption that no other image received:
+
+\[\text{Distinct} = \frac{\#\ \text{unique generated captions}}{\#\ \text{test images}} \tag{5.4}\]
+
+It catches \textbf{template collapse}, where a model scores reasonably on BLEU by writing the same safe sentence for many different scans. For example, the CNN + LSTM writes \emph{``chest x ray showing bilateral infiltrates''} for 348 different test images.
+
+\begin{examplebox}
+
+\textbf{Worked example.} If 10 images receive 8 different captions (two captions are each used twice), the score is 8/10 = 80\%.
+
+\end{examplebox}
+
+\textbf{Limitations of these metrics.} All of them measure word overlap with a single reference, not clinical correctness. A caption can be medically right but worded differently (``computed tomography'' instead of ``ct''), and lose points. They are useful for comparing models on the same data, not as a measure of diagnostic accuracy.

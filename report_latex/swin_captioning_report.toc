@@ -1,0 +1,23 @@
+\contentsline {section}{\numberline {1}Introduction, Purpose and Scope}{3}{section.1}%
+\contentsline {section}{\numberline {2}Related Work and Theoretical Foundations}{3}{section.2}%
+\contentsline {section}{\numberline {3}Vision Encoder: Hierarchical Swin Transformer}{5}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Image Preprocessing and Patch Embedding}{5}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Computational Complexity: Global vs.\ Window Attention}{6}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Window Self-Attention and Continuous Relative Position Bias}{6}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Shifted-Window Attention (SW-MSA) and Cyclic Masking}{6}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}Hierarchical Stage Configurations and Visual Memory Output}{7}{subsection.3.5}%
+\contentsline {section}{\numberline {4}Language Decoder and Cross-Attention Fusion}{7}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Clinical Vocabulary Pruning and Embedding}{7}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Causal Self-Attention and Cross-Attention Fusion}{8}{subsection.4.2}%
+\contentsline {section}{\numberline {5}Optimization Strategy and Anti-Collapse Regularization}{9}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Two-Phase Transfer Learning Strategy}{9}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Anti-Collapse Regularization Suite}{10}{subsection.5.2}%
+\contentsline {section}{\numberline {6}Autoregressive Inference and Beam Search}{10}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Length-Normalized Beam Search with Repetition Blocking}{10}{subsection.6.1}%
+\contentsline {section}{\numberline {7}Empirical Evaluation and Benchmark Results}{11}{section.7}%
+\contentsline {subsection}{\numberline {7.1}Evaluation Methodology and Metrics}{11}{subsection.7.1}%
+\contentsline {subsection}{\numberline {7.2}Quantitative Performance Comparison}{11}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7.3}Analysis of Results: N-gram Precision vs.\ Clinical Diversity}{11}{subsection.7.3}%
+\contentsline {subsection}{\numberline {7.4}Computational Resources and Efficiency Profiling}{12}{subsection.7.4}%
+\contentsline {subsection}{\numberline {7.5}Qualitative Analysis and Case Studies}{12}{subsection.7.5}%
+\contentsline {section}{\numberline {8}Conclusion and Key Takeaways}{15}{section.8}%
