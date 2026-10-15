@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import time
 from pathlib import Path
 
 import torch
@@ -118,6 +119,7 @@ def main() -> None:
         torch.backends.cudnn.allow_tf32 = True
         torch.backends.cudnn.benchmark = True
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+    gpu_name = torch.cuda.get_device_name(device) if device.type == "cuda" else "N/A"
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     vocab_path = args.output_dir / "vocabulary.json"
@@ -227,6 +229,9 @@ def main() -> None:
         )
 
     for epoch in range(start_epoch, args.epochs + 1):
+        if device.type == "cuda":
+            torch.cuda.reset_peak_memory_stats(device)
+        epoch_started = time.perf_counter()
         if not args.unfreeze_encoder and epoch > args.unfreeze_last_stage_after:
             model.unfreeze_last_encoder_stage()
         train_loss, global_step = run_epoch(
@@ -245,6 +250,11 @@ def main() -> None:
             scaler=scaler, use_amp=use_amp, start_step=global_step,
         )
         scheduler.step(valid_loss)
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+        epoch_seconds = time.perf_counter() - epoch_started
+        peak_gpu_memory_gib = (torch.cuda.max_memory_allocated(device) / (1024 ** 3)
+                               if device.type == "cuda" else None)
         improved = valid_loss < best_valid
         if improved:
             best_valid = valid_loss
@@ -272,7 +282,8 @@ def main() -> None:
         print(
             f"epoch={epoch:02d}/{args.epochs} train_loss={train_loss:.4f} "
             f"valid_loss={valid_loss:.4f} lr_head={optimizer.param_groups[0]['lr']:.2e} "
-            f"lr_encoder={optimizer.param_groups[1]['lr']:.2e}"
+            f"lr_encoder={optimizer.param_groups[1]['lr']:.2e} "
+            f"time={epoch_seconds:.1f}s gpu={gpu_name}"
         )
 
         with metrics_path.open("a", encoding="utf-8") as metrics_file:
@@ -289,6 +300,9 @@ def main() -> None:
                         "train_size": len(train_set),
                         "valid_size": len(valid_set),
                         "vocab_size": len(vocabulary.id_to_token),
+                        "epoch_seconds": epoch_seconds,
+                        "gpu_name": gpu_name,
+                        "peak_gpu_memory_gib": peak_gpu_memory_gib,
                     }
                 )
                 + "\n"

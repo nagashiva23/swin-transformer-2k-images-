@@ -97,6 +97,18 @@ python plot_results.py --artifact-dir artifacts/cnn_lstm_roco_full --data-root "
 
 Generated files are saved under `artifacts/cnn_lstm_roco_full/`: `figures/training_validation_loss.png`, `figures/learning_rates.png` (when logged), `figures/test_caption_metrics.png`, `figures/test_computation_time.png`, `figures/qualitative_test_captions.png`, and `results_summary.md`. Run evaluation first so test plots and image examples use real held-out predictions.
 
+## Side-by-side result package with Swin
+
+From this folder, run the shared analysis script in the parent workspace:
+
+```powershell
+python ..\compare_models_results.py --limit 128 --batch-size 4
+```
+
+Use `--limit 0 --batch-size 8` for all test images. This evaluates both saved checkpoints on the same rows and writes CNN+LSTM-only outputs into this workspace's `result/` folder. The joint comparison is under `result/comparison/` in this workspace. It includes timing and GPU memory measurements, interactive plots, feature analyses, generated-caption examples, architecture flow, and token-level confusion matrices/reports. Caption generation has no image diagnosis classes, so the confusion matrix measures next-token predictions under teacher forcing.
+
+The interactive epoch-time graph will include real points after training/resuming with the updated trainer. Older epoch logs did not record elapsed time, so their values cannot be reconstructed and remain blank in that graph.
+
 ## Comparison with the IJRASET 2022 paper
 
 The cited paper describes an Xception + LSTM system trained on Flickr8k (6,000 train, 1,000 validation, 1,000 test images). This project uses a ResNet-50 + LSTM on ROCO v2, a medical-image caption dataset. Because the domains, data splits, reference captions, and evaluation implementation differ, their caption scores are not a direct performance target. The paper's published result section does not provide a verifiable BLEU/METEOR/ROUGE score table, so this README does not claim numeric paper scores. Compare this run with other models evaluated on the same ROCO v2 split using the same caption preprocessing and metric implementation.

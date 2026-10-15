@@ -1,7 +1,8 @@
 ﻿import os
 import argparse
 import textwrap
-import pandas as pd
+import csv
+import itertools
 from PIL import Image
 import matplotlib.pyplot as plt
 import torch
@@ -53,14 +54,14 @@ def run_visualize_inferences(checkpoint_path, csv_path, images_dir, num_samples=
     model.load_state_dict(ckpt["model_state"])
     model.eval()
 
-    df = pd.read_csv(csv_path)
-    sample_df = df.iloc[:num_samples]
+    with open(csv_path, newline="", encoding="utf-8-sig") as csv_file:
+        sample_rows = list(itertools.islice(csv.DictReader(csv_file), num_samples))
 
     rows = []
     images_pil = []
     image_tensors = []
 
-    for _, row in sample_df.iterrows():
+    for row in sample_rows:
         img_p = resolve_image_path(images_dir, row["ID"])
         if os.path.exists(img_p):
             pil_img = Image.open(img_p).convert("RGB")
@@ -76,7 +77,7 @@ def run_visualize_inferences(checkpoint_path, csv_path, images_dir, num_samples=
         else:
             ids_batch = model.generate(batch, vocab, max_len=MAX_LEN, device=DEVICE)
 
-    for row, ids in zip(sample_df.to_dict(orient="records"), ids_batch):
+    for row, ids in zip(sample_rows, ids_batch):
         gen_caption = vocab.decode(ids.tolist())
         gt_caption = str(row["Caption"])
         rows.append({
@@ -86,8 +87,10 @@ def run_visualize_inferences(checkpoint_path, csv_path, images_dir, num_samples=
         })
 
     os.makedirs(os.path.dirname(output_csv), exist_ok=True)
-    res_df = pd.DataFrame(rows)
-    res_df.to_csv(output_csv, index=False)
+    with open(output_csv, "w", newline="", encoding="utf-8-sig") as output_file:
+        writer = csv.DictWriter(output_file, fieldnames=["ID", "Ground_Truth", "Generated_Caption"])
+        writer.writeheader()
+        writer.writerows(rows)
     print(f"[Inference] Saved prediction table to {output_csv}")
 
     cols = 3

@@ -106,3 +106,16 @@ python visualize_inferences.py --n 6 --beam 3
 ```
 Saves the visual comparison grid to `figures/swin_qualitative_predictions.png` and tabular outputs to `artifacts/swin_sample_predictions.csv`.
 
+### 5. Compare Both Caption Models and Export Results
+From the repository root, run a quick 128-image check first:
+```powershell
+python compare_models_results.py --limit 128 --batch-size 4
+```
+For a full held-out test comparison, use all test rows:
+```powershell
+python compare_models_results.py --limit 0 --batch-size 8
+```
+The script evaluates both saved checkpoints with the same test images, preprocessing, greedy decoding, and caption metrics. Swin-only results go to `result/swin/`. CNN+LSTM-only results stay in `CNN+LSTM/result/`; the joint comparison dashboard is in `CNN+LSTM/result/comparison/`. Outputs include interactive plots, image examples, architecture flow diagrams, feature PCA/activation analyses, GPU timing and memory metrics, confusion-matrix PNG/CSVs, and per-token reports. The confusion matrices are for next-token caption prediction, not image diagnosis classes.
+
+Epoch-time logs and the interactive per-epoch comparison graph require a subsequent training/resume run: older history files recorded loss/LR but no epoch durations. The existing missing durations are left blank rather than estimated.
+

@@ -2,6 +2,7 @@
 import math
 import json
 import argparse
+import time
 import pandas as pd
 import torch
 import torchvision.transforms as T
@@ -35,6 +36,7 @@ EARLY_STOP_PATIENCE = 8
 NUM_WORKERS = 4
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else
                        "mps" if torch.backends.mps.is_available() else "cpu")
+GPU_NAME = torch.cuda.get_device_name(DEVICE) if DEVICE.type == "cuda" else "N/A"
 
 
 train_transform = T.Compose([
@@ -173,6 +175,9 @@ def main():
     current_phase = None
 
     for epoch in range(start_epoch, args.epochs + 1):
+        if DEVICE.type == "cuda":
+            torch.cuda.reset_peak_memory_stats(DEVICE)
+        epoch_started = time.perf_counter()
         phase = 1 if epoch <= FREEZE_BACKBONE_EPOCHS else 2
         if phase != current_phase:
             current_phase = phase
@@ -224,6 +229,11 @@ def main():
                 loss = criterion(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
                 val_loss += loss.item()
         avg_val_loss = val_loss / max(1, len(valid_loader))
+        if DEVICE.type == "cuda":
+            torch.cuda.synchronize(DEVICE)
+        epoch_seconds = time.perf_counter() - epoch_started
+        peak_gpu_memory_gib = (torch.cuda.max_memory_allocated(DEVICE) / (1024 ** 3)
+                               if DEVICE.type == "cuda" else None)
 
         dec_lr = optimizer.param_groups[-1]["lr"]
         enc_lr = optimizer.param_groups[0]["lr"] if current_phase == 2 else 0.0
@@ -231,7 +241,8 @@ def main():
         improved = avg_val_loss < best_val_loss
         marker = "  <-- best so far" if improved else ""
         print(f"Epoch {epoch}/{args.epochs}  train_loss={avg_train_loss:.4f}  "
-              f"val_loss={avg_val_loss:.4f}  lr_dec={dec_lr:.2e}{marker}")
+              f"val_loss={avg_val_loss:.4f}  lr_dec={dec_lr:.2e}  "
+              f"time={epoch_seconds:.1f}s gpu={GPU_NAME}{marker}")
 
         training_history.append({
             "epoch": epoch,
@@ -239,6 +250,9 @@ def main():
             "val_loss": round(avg_val_loss, 4),
             "lr_backbone": enc_lr,
             "lr_decoder": dec_lr,
+            "epoch_seconds": epoch_seconds,
+            "gpu_name": GPU_NAME,
+            "peak_gpu_memory_gib": peak_gpu_memory_gib,
         })
 
         with open("training_history.json", "w") as f:
